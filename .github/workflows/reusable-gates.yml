@@ -1,0 +1,74 @@
+# Run lore-eden's shared gates against a repo.
+#
+# Checks out lore-eden alongside the caller and points the gates at the caller's
+# tree, so a repo gets the gates without vendoring them — the vendoring is what
+# produced three drifted copies of the same file in the first place.
+#
+#   jobs:
+#     gates:
+#       uses: laazer/lore-eden/.github/workflows/reusable-gates.yml@main
+
+name: Gates
+
+on:
+  workflow_call:
+    inputs:
+      lore-eden-ref:
+        type: string
+        default: main
+      scope:
+        description: staged | worktree | branch. Branch diffs against the base.
+        type: string
+        default: branch
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the branch scope needs a merge base to diff against, and a
+      # shallow clone has neither that nor the remote ref.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: repo
+
+      - uses: actions/checkout@v4
+        with:
+          repository: laazer/lore-eden
+          ref: ${{ inputs.lore-eden-ref }}
+          path: lore-eden
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: lore-eden/gates/package-lock.json
+
+      - name: Install the TypeScript gate's parser
+        working-directory: lore-eden/gates
+        run: npm ci
+
+      - name: Run every gate
+        run: |
+          set -euo pipefail
+          gates="$PWD/lore-eden/gates/lore_eden_gates"
+          repo="$PWD/repo"
+          base="origin/${{ github.event.pull_request.base.ref || 'main' }}"
+          for gate in \
+            py_organization_check.py \
+            py_silent_except_check.py \
+            py_git_subprocess_check.py \
+            py_defensive_normalization_check.py
+          do
+            echo "--- $gate"
+            python3 "$gates/$gate" --repo "$repo" --scope "${{ inputs.scope }}" --base "$base"
+          done
+          echo "--- ts_organization_check.cjs"
+          node "$gates/ts_organization_check.cjs" --repo "$repo" --scope "${{ inputs.scope }}" --base "$base"

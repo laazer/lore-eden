@@ -1,0 +1,70 @@
+# The `hooks:*` namespace, includable from a project's own Taskfile.
+#
+#   includes:
+#     hooks:
+#       taskfile: /path/to/lore-eden/gates/Taskfile.gates.yml
+#       vars: { GATES: /path/to/lore-eden/gates/lore_eden_gates }
+#
+# The namespace already existed in two repos with four target names spelled
+# identically, and in a third with the same four things under different names.
+# It converged on its own; this is the spelling that won, plus the three gates
+# that had no target at all.
+#
+# Those three matter more than the tidiness: a gate reachable only by attempting
+# a commit is a gate nobody runs deliberately, so nobody finds out what it says
+# until it blocks them.
+#
+# Every target takes an optional scope, defaulting to the worktree — an agent's
+# edits are uncommitted when a gate fires, and that scope includes untracked
+# files, which is where the least-reviewed code in a run lives.
+
+version: '3'
+
+vars:
+  SCOPE: '{{.SCOPE | default "worktree"}}'
+  REPO: '{{.REPO | default .USER_WORKING_DIR}}'
+
+tasks:
+  py-organization:
+    desc: Python organization guardrails (size, duplication, dynamic access, vocabularies)
+    cmds:
+      - python3 {{.GATES}}/py_organization_check.py --repo {{.REPO}} --scope {{.SCOPE}}
+
+  py-silent-except:
+    desc: Broad excepts with an inert body — a success the code never had
+    cmds:
+      - python3 {{.GATES}}/py_silent_except_check.py --repo {{.REPO}} --scope {{.SCOPE}}
+
+  py-git-subprocess:
+    desc: git/gh calls routed through an env-scrubbing wrapper (opt-in; see house rules)
+    cmds:
+      - python3 {{.GATES}}/py_git_subprocess_check.py --repo {{.REPO}} --scope {{.SCOPE}}
+
+  py-defensive-normalization:
+    desc: Re-normalizing a value that should be constrained at its source
+    cmds:
+      - python3 {{.GATES}}/py_defensive_normalization_check.py --repo {{.REPO}} --scope {{.SCOPE}}
+
+  ts-organization:
+    desc: TypeScript organization guardrails (size, duplication, API calls in components)
+    cmds:
+      - node {{.GATES}}/ts_organization_check.cjs --repo {{.REPO}} --scope {{.SCOPE}}
+
+  all:
+    desc: Every shared gate, in one pass
+    cmds:
+      - task: py-organization
+      - task: py-silent-except
+      - task: py-git-subprocess
+      - task: py-defensive-normalization
+      - task: ts-organization
+
+  install:
+    desc: Write the managed hook block into this repo's lefthook.yml
+    cmds:
+      - bash {{.GATES}}/../scripts/install-workspace-hooks.sh {{.REPO}}
+
+  check-install:
+    desc: Report whether the managed hook block is current, without writing
+    cmds:
+      - bash {{.GATES}}/../scripts/install-workspace-hooks.sh --check {{.REPO}}

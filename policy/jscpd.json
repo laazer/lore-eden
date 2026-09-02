@@ -1,0 +1,22 @@
+{
+  "$comment": [
+    "Copy-paste detection baseline. See jscpd.md for why these numbers.",
+    "`path` and any project-specific ignores are the adopting repo's; everything",
+    "else here is the shared definition of what counts as a duplicate."
+  ],
+  "minLines": 15,
+  "minTokens": 100,
+  "threshold": 0,
+  "format": ["typescript", "tsx", "javascript", "jsx", "python"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/__pycache__/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/__tests__/**",
+    "**/tests/**"
+  ],
+  "reporters": ["console"]
+}

@@ -1,0 +1,23 @@
+# Pylint policy: one rule, deliberately.
+#
+# `disable = ["all"]` then enabling exactly one check is not laziness — it is
+# what makes the gate survivable on a codebase that did not grow up under it.
+# A pylint run with its defaults on an existing repo produces thousands of
+# findings, and a gate nobody can get to zero is a gate everybody learns to
+# bypass.
+#
+# `too-many-statements` earns the slot because function length is the one
+# measure that reliably predicts the others, and because it is diff-scoped by
+# `pylint_diff_filter.py` — a long function that was already long does not block
+# an unrelated edit to it. Only growth fails.
+#
+# Copy into a project's pyproject.toml, or reference this file with
+# `--rcfile`. Byte-identical between the two repos it was extracted from, which
+# is the argument for it living in one place.
+
+[tool.pylint.main]
+disable = ["all"]
+enable = ["too-many-statements"]
+
+[tool.pylint.design]
+max-statements = 50

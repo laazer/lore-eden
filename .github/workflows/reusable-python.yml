@@ -1,0 +1,106 @@
+# Lint and test a Python project.
+#
+# Three repos ran this same shape with divergences that were accidental rather
+# than considered — one pinned 3.10 through uv, two used setup-python with 3.12
+# and pip caching, one cancelled in-progress runs and the others did not. None
+# of those differences was a decision anybody made; they are what happens when a
+# workflow is copied.
+#
+#   jobs:
+#     backend:
+#       uses: laazer/lore-eden/.github/workflows/reusable-python.yml@main
+#       with:
+#         working-directory: server
+#         python-versions: '["3.10", "3.12"]'
+
+name: Python
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        type: string
+        default: '.'
+      python-versions:
+        description: JSON array of versions to test against.
+        type: string
+        default: '["3.12"]'
+      install:
+        description: How to install the project and its test dependencies.
+        type: string
+        default: 'python -m pip install -e ".[dev]"'
+      lint:
+        description: Set false for a project not yet clean under ruff.
+        type: boolean
+        default: true
+      test:
+        type: string
+        default: 'python -m pytest -q'
+      # Services are opt-in rather than always-on: starting postgres for a
+      # project that does not use it costs 20s of every run to prove nothing.
+      postgres:
+        type: boolean
+        default: false
+      redis:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: py${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(inputs.python-versions) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Start postgres
+        if: inputs.postgres
+        run: |
+          docker run -d --name ci-postgres \
+            -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=test \
+            -p 5432:5432 postgres:16-alpine
+          # Polled rather than slept: a fixed wait is either too short on a slow
+          # runner or wasted on a fast one, and the failure mode of too-short is
+          # a confusing connection error rather than an obvious timeout.
+          for _ in $(seq 1 30); do
+            docker exec ci-postgres pg_isready -U postgres && break
+            sleep 1
+          done
+
+      - name: Start redis
+        if: inputs.redis
+        run: |
+          docker run -d --name ci-redis -p 6379:6379 redis:7-alpine
+          for _ in $(seq 1 30); do
+            docker exec ci-redis redis-cli ping && break
+            sleep 1
+          done
+
+      - name: Install
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          python -m pip install --upgrade pip
+          ${{ inputs.install }}
+
+      - name: Lint
+        if: inputs.lint
+        working-directory: ${{ inputs.working-directory }}
+        run: |
+          python -m pip install ruff
+          ruff check .
+          ruff format --check .
+
+      - name: Test
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.test }}

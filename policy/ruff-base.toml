@@ -1,0 +1,37 @@
+# Ruff policy: the base every project starts from.
+#
+# What is *not* selected matters as much as what is. `C901` (McCabe complexity)
+# is absent on purpose: an existing codebase has dozens of pre-existing hits, and
+# selecting it makes every unrelated edit to those files fail. Complexity is
+# gated instead by `ruff_complexity_diff_filter.py`, which fails only when a
+# function this change touched got *more* complex — the same "don't make it
+# worse" policy the organization gates use.
+#
+# `max-complexity` is still set, because the diff filter reads it from here.
+#
+# Framework accommodations are NOT in this base. `B008` (calls in argument
+# defaults) and `E712` (`== True`) are real findings that two specific
+# frameworks make idiomatic; a project that uses them adds the layer below, and
+# a project that does not keeps the check.
+
+target-version = "py310"
+line-length = 100
+
+[lint]
+# E/W pycodestyle · F pyflakes · I isort · UP pyupgrade · B bugbear · C4 comprehensions
+select = ["E", "W", "F", "I", "UP", "B", "C4"]
+ignore = [
+    # Line length is the formatter's job; failing a lint on it as well means
+    # two tools disagreeing about the same line.
+    "E501",
+]
+
+[lint.mccabe]
+# Read by the diff-scoped complexity gate. Explicit rather than defaulted, so
+# changing it is a decision rather than a version bump.
+max-complexity = 10
+
+[lint.per-file-ignores]
+# A test asserts on things application code should not: unused bindings that
+# document a shape, imports after a fixture, a bare comparison in an assertion.
+"tests/*" = ["B", "E402"]
