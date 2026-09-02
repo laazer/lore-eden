@@ -1,6 +1,7 @@
 # lore-eden (ts)
 
-The UI kit: design tokens and theming, a pane/canvas layout system, and chat.
+The UI kit: design tokens and theming, responsive breakpoints and window layout,
+a pane/canvas layout system, and chat.
 
 ```bash
 cd ts && npm install
@@ -278,3 +279,87 @@ above the input through `renderAbove` instead.
 
 The command path is consulted **before** the send gate, deliberately: a command
 like "stop" has to work at exactly the moment an ordinary send is refused.
+
+
+## Responding to the window
+
+Two sizing systems ship, and they answer different questions. Picking the wrong
+one gives you a component that ignores the constraint actually applying to it.
+
+| | Measures | Stops | Use it for |
+|---|---|---|---|
+| `useScreenSize()` | the **window** | 6 (`xs`…`x2`) | page-level layout — chrome, columns, whether a sidebar exists |
+| `usePaneSize()` | a **container** | 3 (`compact`/`regular`/`wide`) | a pane's own contents |
+
+A pane 300px wide in a 4K window is cramped whatever the breakpoint says — only
+the container measurement knows that. Equally, an app bar's height is a property
+of the window, not of any one pane. Both are right; they are not alternatives.
+
+### Per-size values
+
+Any value can be given per breakpoint:
+
+```tsx
+const width = useFlexValue({ xs: '100%', md: '50%', xl: 320 });
+```
+
+Resolution searches **outward** from the active size — nearest defined in either
+direction, narrower preferred at a tie — then `base`, then your fallback. Most
+systems only cascade down, which leaves a value set for `xl` simply absent at
+`xs`; searching outward means a partial config always resolves to something its
+author actually wrote.
+
+`base` is not a breakpoint. It is the value that applies at every size, and it
+sits outside the size map so the outward search cannot reach it as a neighbour.
+
+### Measured once per boundary, not per render
+
+`useScreenSize` reads `window.innerWidth` when a resize **crosses a breakpoint**,
+not on every render and not on every resize event. Reading layout in a render
+path forces the browser to flush pending style work to answer it, and dragging a
+window edge fires hundreds of events that change nobody's answer.
+
+`screenSizeNow()` exists for imperative callers outside React, named so the live
+read is obvious.
+
+## Window layout
+
+The regions an application reserves, and what stacks above what.
+
+```tsx
+const bar = useRegion('appBar');
+<header style={regionStyle(bar)}>…</header>
+```
+
+A region is **named**, so a component asks where it belongs rather than deriving
+a position, and its size can differ per breakpoint — the right-hand toolbar takes
+33% of a narrow window and 35% of a wide one without anyone writing a media
+query.
+
+### The z-index ladder
+
+```ts
+LAYERS.notification  // 20000
+LAYERS.appBar        // 18000
+LAYERS.toolbar       // 14000
+LAYERS.body          // 1
+```
+
+A named rung instead of a number at the call site. The alternative is what every
+codebase without one accumulates: `z-index: 9999` beside `z-index: 10000` beside
+`z-index: 999999`, each written by someone who could not see the others. The
+thousand-wide gaps are deliberate — room to slot something in without
+renumbering, and renumbering is the change that quietly reorders things nobody
+was watching.
+
+**This is not the canvas's z-order.** `layout/canvas` has a *free* stack a user
+drags and reorders. This ladder is *fixed* application chrome that nothing
+reorders at runtime.
+
+**And "flex" here is not `FlexGridSurface`.** That surface's flex is the CSS grow
+factor in a split grid; the flex here is breakpoints.
+
+### Hidden is not zero-sized
+
+A hidden region renders `display: none`; a zero-height one still holds an empty
+box open. Collapsing the two leaves a gap with no visible cause.

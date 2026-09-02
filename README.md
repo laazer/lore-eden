@@ -17,6 +17,7 @@ one:
 | MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | **shipped** — see [`python/`](python/) |
 | Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | **shipped** — see [`python/`](python/) |
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | **shipped** — see [`ts/`](ts/) |
+| Responsive breakpoints + window layout (named regions, z-ladder) | loremaker `client/src/common/`, `theme/` | **shipped** — see [`ts/`](ts/) |
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | **shipped** — see [`ts/`](ts/) |
 | Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | **shipped** — see [`ts/`](ts/) |
 | CLI executor + permission bridge | loregarden `server/loregarden/agents/` | **shipped** — see [`python/`](python/) |
