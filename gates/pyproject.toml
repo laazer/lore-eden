@@ -1,0 +1,26 @@
+[project]
+name = "lore-eden-gates"
+version = "0.1.0"
+description = "Repo-agnostic organization, safety and diff-scoping gates for lefthook and orchestration"
+requires-python = ">=3.10"
+# Deliberately dependency-free: these run against arbitrary repositories that
+# may have no virtualenv, invoked as whatever `python3` is on PATH. A gate that
+# cannot start is a gate that silently does not run, which is why config is JSON
+# rather than TOML (tomllib is 3.11+) and why the floor is 3.10.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lore_eden_gates"]
+
+[tool.setuptools.package-data]
+lore_eden_gates = ["*.cjs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

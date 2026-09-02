@@ -1,0 +1,9 @@
+{
+  "name": "@lore-eden/gates",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repo-agnostic TypeScript organization gate. Ships its own parser so it can run against a repo that has none.",
+  "dependencies": {
+    "@typescript-eslint/typescript-estree": "^8.0.0"
+  }
+}
