@@ -1,7 +1,7 @@
 # lore-eden (python)
 
-The agent harness. Today: MCP transport, the registry of MCP servers a host
-makes reachable, and a workflow engine.
+The agent harness: MCP transport, the registry of MCP servers a host makes
+reachable, a workflow engine, and driving a CLI agent as a subprocess.
 
 ```bash
 pip install -e "python[dev]"
@@ -167,3 +167,66 @@ intent for it. A gate that could not *run* is never retried.
 
 **`repo_root` must be the tree the stage actually wrote in.** Run gates in a
 shared checkout and every one of them passes on work it never saw.
+
+
+## Running a CLI agent
+
+```python
+from lore_eden.agents import PermissionBridge, PermissionDecision
+
+class Inbox:
+    def decide(self, request, *, cancelled):
+        # Blocking is fine — waiting for a human is the normal case.
+        answer = wait_for_approval(request.tool_name, request.tool_input, cancelled)
+        return PermissionDecision(approved=answer.allowed, message=answer.reason)
+
+outcome = PermissionBridge(
+    argv=["claude", "-p", "--output-format", "stream-json", ...],
+    cwd=worktree,
+    policy=Inbox(),
+    idle_timeout=300,
+).run(stdin_text=prompt)
+```
+
+Four pieces, separate on purpose: `protocol` (the wire format, pure functions),
+`policy` (what a host decides), `process` (subprocess supervision), `bridge`
+(the loop joining them). The version this came from had all four in one
+1,400-line class interleaved with one control plane's scope-rerouting, rework
+budgets, rate limits and telemetry. The protocol is the same everywhere; the
+policy never is.
+
+### The default policy refuses
+
+An unconfigured bridge that approved would run tools nobody decided to allow,
+with nothing saying so. `allow_all()` exists and has to be asked for by name.
+
+### Two timeouts, not one
+
+A single wall-clock deadline kills a long run that is working perfectly — an
+agent editing twenty files legitimately takes longer than one editing two, and
+no number is generous enough for the second without being useless for the first.
+
+- **Idle** — the longest the process may go saying *nothing*. Output is
+  progress, so any line resets it. This is what catches a hung agent.
+- **Hard** — an absolute ceiling (6× idle by default). A process emitting a line
+  every few seconds forever never trips the idle budget; this catches the loop
+  that is busy rather than stuck.
+
+They are reported separately because they diagnose different faults: idle is
+usually a wedged tool, hard is usually a loop, and a caller routes them
+differently.
+
+The reading happens on a thread. Iterating the pipe directly blocks until a line
+arrives, so nothing else runs while the process is silent — and a deadline
+checked only when output appears cannot fire on a process producing none, which
+makes it a timeout that works for every case except the one it was written for.
+
+### Traps the protocol module handles
+
+- **An approval with an empty `updatedInput` overwrites the agent's arguments.**
+  A well-meant "no changes" silently strips the command a shell tool was about
+  to run, so it is omitted rather than sent empty.
+- **A denial still has to be sent.** An agent waiting on an answer that never
+  comes hangs rather than exits.
+- **A result event can report failure while the process exits 0.** Reading only
+  the exit code calls that a success.
