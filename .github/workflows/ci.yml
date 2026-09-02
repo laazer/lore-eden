@@ -78,9 +78,22 @@ jobs:
       # execution having examined nothing at all, which is the precise failure
       # this library exists to remove.
       - name: Positive control — a planted violation must fail the gate
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
         run: |
           set -euo pipefail
-          control="$(mktemp -d)"
+          gates="$PWD/gates/lore_eden_gates"
+          # A throwaway repo, not a bare temp file. The gates are diff-scoped
+          # against the repository they resolve, so a file outside that repo has
+          # no touched lines and is graded not at all — while still being counted
+          # in "examined N file(s)". The first version of this control did that
+          # and passed a violation it should have caught.
+          control="$(mktemp -d)/repo"
+          mkdir -p "$control"
+          git -C "$control" init -q -b main
           cat > "$control/planted.py" <<'PY'
           import json
 
@@ -91,7 +104,22 @@ jobs:
               except Exception:
                   return None
           PY
-          if python3 gates/lore_eden_gates/py_silent_except_check.py "$control/planted.py"; then
+          git -C "$control" add -A
+          git -C "$control" commit -qm baseline
+          # Re-plant as an untracked change so worktree scope has lines to grade.
+          rm "$control/planted.py"
+          git -C "$control" commit -aqm "remove baseline"
+          cat > "$control/planted.py" <<'PY'
+          import json
+
+
+          def load(raw):
+              try:
+                  return json.loads(raw)
+              except Exception:
+                  return None
+          PY
+          if python3 "$gates/py_silent_except_check.py" --repo "$control" --scope worktree; then
             echo "::error::the silent-except gate passed a planted violation; it is not working"
             exit 1
           fi
