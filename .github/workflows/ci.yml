@@ -71,19 +71,50 @@ jobs:
         working-directory: gates
         run: npm ci
 
-      # This is the dogfood, and it is also the check that would have caught the
-      # absolute-path bug: it runs the gates from a clone that is not the machine
-      # they were written on.
+      # Positive control, and it runs FIRST. Every gate below can legitimately
+      # examine zero files — a docs-only PR gives the TypeScript gate nothing —
+      # so a green job proves the gates ran only if something in it is known to
+      # fail when they work. Without this the job reported success on its first
+      # execution having examined nothing at all, which is the precise failure
+      # this library exists to remove.
+      - name: Positive control — a planted violation must fail the gate
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)"
+          cat > "$control/planted.py" <<'PY'
+          import json
+
+
+          def load(raw):
+              try:
+                  return json.loads(raw)
+              except Exception:
+                  return None
+          PY
+          if python3 gates/lore_eden_gates/py_silent_except_check.py "$control/planted.py"; then
+            echo "::error::the silent-except gate passed a planted violation; it is not working"
+            exit 1
+          fi
+          echo "control failed as required"
+
+      # The dogfood: run the gates from a clone that is not the machine they were
+      # written on. This is the shape of check that would have caught the
+      # absolute-path bug in the committed lefthook.yml.
       - name: Run every gate against this repo
         run: |
           set -euo pipefail
-          base="origin/${{ github.event.pull_request.base.ref || 'main' }}"
           if [ "${{ github.event_name }}" = "push" ]; then
-            scope=worktree; base=origin/main
+            # Diff against what main was before this push. `worktree` against a
+            # just-pushed HEAD is an empty diff, so the job examined nothing and
+            # called it a pass.
+            base="${{ github.event.before }}"
+            case "$base" in
+              ""|0000000000000000000000000000000000000000) base="HEAD~1" ;;
+            esac
           else
-            scope=branch
+            base="origin/${{ github.event.pull_request.base.ref }}"
           fi
-          echo "scope=$scope base=$base"
+          echo "scope=branch base=$base"
           for gate in \
             py_organization_check.py \
             py_silent_except_check.py \
@@ -91,10 +122,10 @@ jobs:
             py_defensive_normalization_check.py
           do
             echo "--- $gate"
-            python3 "gates/lore_eden_gates/$gate" --repo "$PWD" --scope "$scope" --base "$base"
+            python3 "gates/lore_eden_gates/$gate" --repo "$PWD" --scope branch --base "$base"
           done
           echo "--- ts_organization_check.cjs"
-          node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope "$scope" --base "$base"
+          node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope branch --base "$base"
 
       - name: Managed hook block is current
         run: gates/scripts/install-workspace-hooks.sh --check "$PWD"
