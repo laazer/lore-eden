@@ -1,6 +1,6 @@
 # lore-eden (ts)
 
-The UI kit. Today: design tokens and theming.
+The UI kit. Today: design tokens and theming, and a pane/canvas layout system.
 
 ```bash
 cd ts && npm install
@@ -99,3 +99,116 @@ cd ts && npm test
 They assert on the **resolved** custom properties in a real DOM, not on the
 stylesheet string the provider injected — a stylesheet that is present but not
 applying is exactly the failure a string assertion misses.
+
+
+## Arrangements
+
+Two ways to place panes, sharing one pane implementation.
+
+**A split grid** — nested resizable splits, where a pane's size is a grow factor
+rather than a stored pixel count. **A free canvas** — items placed anywhere, with
+pan, zoom, and a z-order.
+
+```tsx
+import { FlexGridSurface, CanvasSurface, readGridTree } from '@lore-eden/ui';
+
+<FlexGridSurface
+  tree={readGridTree(layout)}
+  containers={layout.containers}
+  edit={queue.edit}
+  pickPrimitive={pick}
+/>
+```
+
+Both are **controlled**: they take the layout and hand back edits. They do no
+routing, hold no cache and know nothing about your backend — the versions this
+came from read the view id from the router and their writes from a data-layer
+hook, which is what made them impossible to reuse.
+
+### Panes
+
+A pane's contents are a *primitive*: a component registered against an id, which
+a container stores. Arrangement code never names one, so adding a pane type is a
+registration and no change to either surface.
+
+```tsx
+const notes = definePrimitive({
+  id: 'notes',
+  displayName: 'Notes',
+  containerKind: 'panel',
+  settingsFields: [{ kind: 'string', key: 'title', label: 'Title', default: 'Untitled' }],
+  parseSettings: (s) => ({ title: String(s.title ?? 'Untitled') }),
+  Component: ({ settings }) => <Notes {...settings} />,
+});
+
+new PrimitiveRegistry().register(notes);
+```
+
+Ids are resolved through a `Map`, never a plain-object lookup — a stored id is
+text a user influenced, and `settings['__proto__']` on an object reaches
+`Object.prototype`. Registering one id twice is refused rather than silently
+replacing the first.
+
+### Sizing by tier
+
+A primitive is told how much room it has, as a **tier** rather than a pixel
+count:
+
+```tsx
+const { tier, width, height } = usePaneSize();  // 'compact' | 'regular' | 'wide'
+```
+
+Exact numbers are published too — a chart or a virtualiser needs them — but the
+layout decision is a tier, so the thresholds are chosen once instead of being
+scattered as magic numbers through every pane.
+
+Height counts. A pane 900px wide and 90px tall is `compact`: the constraint felt
+there is vertical, and a primitive consulting only width would lay a comfortable
+three-column card into a letterbox.
+
+Before the first measurement the tier is `regular`, not `compact` — guessing
+compact flashes every pane's dense layout on mount, and `regular` is the layout
+most primitives are already written for, so the first frame looks like the steady
+state. Where `ResizeObserver` does not exist the tier simply stays `regular`.
+
+The tier is also a `data-pane-tier` attribute, so a pane can answer the easy
+cases in its own stylesheet without re-rendering on every drag frame.
+
+### Persisting
+
+The surfaces do not persist; the host does. What the host should not have to
+re-derive is the *ordering*, so that is here:
+
+```ts
+const queue = createLayoutQueue({
+  read: () => cache.current,
+  write: (layout) => api.save(layout),
+  onWritten: (stored) => { cache.current = stored; cancelInFlightReads(); },
+});
+```
+
+Four properties, each of which was a bug first:
+
+- **The base is the newest layout, not one captured at click time.** The edit is
+  a function called when the queue reaches it. A body composed at pointer-down
+  reverts whatever the in-flight write was saving, and a backend that replaces
+  the layout wholesale accepts it happily.
+- **Writes to one layout are serialized.** Two edits against the same base both
+  save, and the second discards the first.
+- **A write carries its own identity.** One queue per layout, so a write issued
+  against one view that lands after you opened another cannot write into it.
+- **A stale read must not land on top of a write.** The queue cannot cancel the
+  host's reads, so it announces each landed write through `onWritten` — cancel
+  there. The revert is otherwise invisible: every layout involved is valid, and
+  it is the *next* edit, composing from the reverted cache, that does the damage.
+
+Pan and zoom are a separate path on purpose: they fire continuously while a
+content edit may be in flight, and queueing them behind it makes the canvas feel
+stuck.
+
+### Slots
+
+Three things the host supplies, because they are its decisions and not this
+package's: the primitive **picker**, a pane's **settings editor**, and which
+primitives the **registry** offers. Omit the settings slot and the settings
+control does not appear — a button that opens nothing is a control that lies.
