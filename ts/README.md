@@ -426,3 +426,81 @@ renders as though somebody chose it.
 corner, rather than assembled from fragments. An assembled name can be one no
 browser knows — and React drops an unknown style property without a word, so
 the failure is a border that quietly does not appear.
+
+## Primitives
+
+Pieces with no dependency on the rest of the kit, extracted because nothing in a
+standard library or a common package does quite what they do.
+
+### Observable — change channels, not events
+
+A subscriber names the *kinds* of change it cares about and is called **once**
+per emission, however many of those kinds the emission touched:
+
+```ts
+const off = doc.observeChangeTypes(render, ['title', 'body']);
+```
+
+`render` runs once when a change reports both. An emitter that fanned out per
+channel would call it twice and leave the caller to dedupe — which is the work
+this does. `'any'` hears everything, and subscribing returns its own
+unsubscribe, so an inline arrow can be removed later.
+
+`ObservableDict` makes each key its own channel, so a component can watch one
+field without waking on every other write.
+
+### The checkpoint stack is not browser history
+
+Browser history is where you *came from*. A user who wandered through six
+settings screens wants one gesture back to the document they were editing, not
+six presses. Checkpoints are pushed deliberately, and `jump` skips any that
+resolve to where you already are — two paths can be the same place (`/` and
+`/home`), and returning to one you are standing on reads as a broken button.
+
+It takes a `NavAdapter` — `{ currentPath, navigate }` — rather than calling a
+router. The source called react-router v5's `useHistory`, removed in v6; a
+shared library cannot pin its consumers to a router, let alone a superseded
+major of one.
+
+```tsx
+const adapter = { currentPath: useLocation().pathname, navigate: useNavigate() };
+<CheckpointProvider adapter={adapter}>…</CheckpointProvider>
+```
+
+### LruOrderedSetCache remembers two orders
+
+Insertion order is what you read back; recency decides who gets evicted. A plain
+LRU gives you eviction but shuffles the display, and an insertion-ordered set
+gives you a stable display and no eviction policy. Open tabs and recent files
+want both.
+
+### Queried is a union, not a bag of booleans
+
+After `if (result.isSuccess)` the data exists; before it there is nothing to
+read. No optional chaining, no non-null assertion, no branch you forgot.
+`fromQueryLike` adapts react-query, TanStack Query, SWR or a hand-rolled fetch
+hook, because it reads only the flags they all agree on — nothing here imports a
+query library.
+
+### TabView keeps your place
+
+The reconciliation is the point. Tabs are identified by key, so closing an
+earlier tab does not slide the selection onto a different document, and adding
+one selects it. `reconcileSelection` is exported and tested without a DOM.
+
+### Hooks
+
+`usePrevious`, `useEventListener`, `useThrottle`, `useMousePosition`.
+
+`useEventListener` keeps the handler in a ref, so passing an inline arrow — what
+callers actually do — does not detach and reattach every render. `useThrottle`
+is leading-edge and cancels on unmount. `useMousePosition` coalesces to one
+update per animation frame; a mouse fires `mousemove` faster than React can
+render, and a frame is the finest granularity anything visual can use.
+
+### Errors
+
+`describeError(value)` narrows an unknown thrown value to a message, and
+`asError(value)` to an `Error`. One helper rather than an `instanceof Error`
+ternary at each call site, each copy free to disagree about what a thrown
+non-`Error` should say. The organization gate enforces it.
