@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates-tests:
+    name: gates tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor and earns its place: it has no tomllib, which is
+        # why the gate config is JSON. Testing only on a modern interpreter is
+        # how that constraint gets broken without anyone noticing.
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: gates/package-lock.json
+
+      - name: Install the TypeScript gate's parser
+        working-directory: gates
+        run: npm ci
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Run the gate test suite
+        working-directory: gates
+        run: python -m pytest -q
+
+  self-check:
+    name: gates grade this repo
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the branch scope diffs against origin/main, and a shallow
+      # clone has neither the merge base nor the remote ref to diff against.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: gates/package-lock.json
+
+      - name: Install the TypeScript gate's parser
+        working-directory: gates
+        run: npm ci
+
+      # This is the dogfood, and it is also the check that would have caught the
+      # absolute-path bug: it runs the gates from a clone that is not the machine
+      # they were written on.
+      - name: Run every gate against this repo
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.event.pull_request.base.ref || 'main' }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            scope=worktree; base=origin/main
+          else
+            scope=branch
+          fi
+          echo "scope=$scope base=$base"
+          for gate in \
+            py_organization_check.py \
+            py_silent_except_check.py \
+            py_git_subprocess_check.py \
+            py_defensive_normalization_check.py
+          do
+            echo "--- $gate"
+            python3 "gates/lore_eden_gates/$gate" --repo "$PWD" --scope "$scope" --base "$base"
+          done
+          echo "--- ts_organization_check.cjs"
+          node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope "$scope" --base "$base"
+
+      - name: Managed hook block is current
+        run: gates/scripts/install-workspace-hooks.sh --check "$PWD"
