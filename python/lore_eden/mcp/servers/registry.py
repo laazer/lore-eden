@@ -1,0 +1,223 @@
+"""The MCP servers a host knows about, and how its agents reach them.
+
+An agent that can reach exactly one server — the host's own, hardcoded into the
+client config — forces every other server to be configured outside the control
+plane, where nothing can see, audit, or disable it.
+
+Registering a server here composes it into that config, so the registry is the
+one place a server is added or taken away, rather than a table a UI reads and
+nothing acts on.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+from sqlmodel import Session, select
+
+from lore_eden.mcp.servers.models import (
+    TOOL_POLICIES,
+    TRANSPORTS,
+    McpServerCreate,
+    McpServerRecord,
+    McpServerUpdate,
+    McpServerView,
+    utcnow,
+)
+
+
+class McpRegistryError(ValueError):
+    """A registration the registry will not accept."""
+
+
+def parse_string_list(raw: str) -> list[str]:
+    """A JSON array column as a list of strings.
+
+    Never raises on bad JSON: a column an operator or an older build wrote badly
+    should not turn every read of the table into a 500. The catch is narrow and
+    the fallback is the empty list the column means when it is absent.
+    """
+    try:
+        parsed = json.loads(raw or "[]")
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):  # py-org: allow-isinstance (untyped JSON column)
+        return []
+    return [str(item) for item in parsed]
+
+
+def parse_args(raw: str) -> list[str]:
+    """Launch arguments for a stdio server."""
+    return parse_string_list(raw)
+
+
+def to_view(server: McpServerRecord) -> McpServerView:
+    return McpServerView(
+        id=server.id,
+        name=server.name,
+        description=server.description,
+        transport=server.transport,
+        url=server.url,
+        command=server.command,
+        args=parse_args(server.args_json),
+        auth_env_var=server.auth_env_var,
+        enabled=server.enabled,
+        tool_policy=server.tool_policy,
+        rate_limit_per_min=server.rate_limit_per_min,
+        last_checked_at=server.last_checked_at,
+        last_health_ok=server.last_health_ok,
+        last_health_latency_ms=server.last_health_latency_ms,
+        last_health_error=server.last_health_error,
+        tools=parse_string_list(server.tools_json),
+        tools_listed_at=server.tools_listed_at,
+        # Presence only. The value never leaves the process it is read in.
+        auth_present=bool(server.auth_env_var and os.environ.get(server.auth_env_var)),
+        created_at=server.created_at,
+        updated_at=server.updated_at,
+    )
+
+
+def _validate(*, name: str, transport: str, url: str, command: str, tool_policy: str) -> None:
+    if not name.strip():
+        raise McpRegistryError("Server name is required")
+    if transport not in TRANSPORTS:
+        raise McpRegistryError(f"Unknown transport: {transport}")
+    if tool_policy not in TOOL_POLICIES:
+        raise McpRegistryError(f"Unknown tool policy: {tool_policy}")
+    # A server missing the field its transport needs would register cleanly and
+    # then fail inside an agent subprocess, where the cause is hard to see.
+    if transport == "http" and not url.strip():
+        raise McpRegistryError("An http server needs a url")
+    if transport == "stdio" and not command.strip():
+        raise McpRegistryError("A stdio server needs a command")
+
+
+def list_servers(session: Session) -> list[McpServerRecord]:
+    return list(session.exec(select(McpServerRecord).order_by(McpServerRecord.name)).all())
+
+
+def enabled_server_names(session: Session) -> frozenset[str]:
+    """Names a client grant could actually match.
+
+    Enabled only, matching :func:`client_server_entries` — a disabled server is
+    parked, and granting one should read as "matches nothing" rather than as
+    working. Resolve this once per request and pass it down; it is a whole-table
+    read.
+    """
+    return frozenset(server.name for server in list_servers(session) if server.enabled)
+
+
+def create_server(session: Session, body: McpServerCreate) -> McpServerRecord:
+    _validate(
+        name=body.name,
+        transport=body.transport,
+        url=body.url,
+        command=body.command,
+        tool_policy=body.tool_policy,
+    )
+    if session.exec(
+        select(McpServerRecord).where(McpServerRecord.name == body.name.strip())
+    ).first():
+        raise McpRegistryError(f"A server named '{body.name.strip()}' is already registered")
+
+    server = McpServerRecord(
+        name=body.name.strip(),
+        description=body.description,
+        transport=body.transport,
+        url=body.url.strip(),
+        command=body.command.strip(),
+        args_json=json.dumps(list(body.args)),
+        auth_env_var=body.auth_env_var.strip(),
+        enabled=body.enabled,
+        tool_policy=body.tool_policy,
+        rate_limit_per_min=body.rate_limit_per_min,
+    )
+    session.add(server)
+    session.commit()
+    session.refresh(server)
+    return server
+
+
+def update_server(session: Session, server_id: str, body: McpServerUpdate) -> McpServerRecord:
+    server = session.get(McpServerRecord, server_id)
+    if not server:
+        raise McpRegistryError("Server not found")
+
+    if body.name is not None:
+        clash = session.exec(
+            select(McpServerRecord).where(McpServerRecord.name == body.name.strip())
+        ).first()
+        if clash and clash.id != server.id:
+            raise McpRegistryError(f"A server named '{body.name.strip()}' is already registered")
+        server.name = body.name.strip()
+    if body.description is not None:
+        server.description = body.description
+    if body.transport is not None:
+        server.transport = body.transport.strip()
+    if body.url is not None:
+        server.url = body.url.strip()
+    if body.command is not None:
+        server.command = body.command.strip()
+    if body.auth_env_var is not None:
+        server.auth_env_var = body.auth_env_var.strip()
+    if body.args is not None:
+        server.args_json = json.dumps(list(body.args))
+    if body.enabled is not None:
+        server.enabled = body.enabled
+    if body.tool_policy is not None:
+        server.tool_policy = body.tool_policy.strip()
+    if body.rate_limit_per_min is not None:
+        server.rate_limit_per_min = max(0, body.rate_limit_per_min)
+
+    _validate(
+        name=server.name,
+        transport=server.transport,
+        url=server.url,
+        command=server.command,
+        tool_policy=server.tool_policy,
+    )
+    server.updated_at = utcnow()
+    session.add(server)
+    session.commit()
+    session.refresh(server)
+    return server
+
+
+def delete_server(session: Session, server_id: str) -> None:
+    server = session.get(McpServerRecord, server_id)
+    if not server:
+        raise McpRegistryError("Server not found")
+    session.delete(server)
+    session.commit()
+
+
+def client_server_entries(session: Session) -> dict[str, dict]:
+    """Registered servers as ``mcpServers`` entries for a client config.
+
+    Disabled servers are withheld rather than removed, so a server that is
+    misbehaving can be parked without losing how it was configured.
+
+    A credential is resolved from the environment here, at the moment the config
+    is being built, and is never read from the database.
+    """
+    entries: dict[str, dict] = {}
+    for server in list_servers(session):
+        if not server.enabled:
+            continue
+        if server.transport == "http":
+            entry: dict = {"type": "http", "url": server.url}
+            token = os.environ.get(server.auth_env_var, "") if server.auth_env_var else ""
+            if token:
+                entry["headers"] = {"Authorization": f"Bearer {token}"}
+        else:
+            entry = {
+                "type": "stdio",
+                "command": server.command,
+                "args": parse_args(server.args_json),
+            }
+            if server.auth_env_var:
+                # Pass the variable through by name; the child reads it itself.
+                entry["env"] = {server.auth_env_var: os.environ.get(server.auth_env_var, "")}
+        entries[server.name] = entry
+    return entries
