@@ -8,7 +8,25 @@ Four independent pieces, none of which knows what a work item is:
 - :mod:`~lore_eden.workflow.gates` — running the commands that gate a transition
 """
 
+from lore_eden.workflow.approvals import (
+    AUTOMATION,
+    AlreadyResolvedError,
+    Approval,
+    ApprovalKind,
+    ApprovalNotFoundError,
+    ApprovalStatus,
+    ApprovalStore,
+)
+from lore_eden.workflow.dispatch import (
+    DispatchResult,
+    WorkflowCursor,
+    advance,
+    block,
+    start,
+    terminal_stage_key,
+)
 from lore_eden.workflow.events import EventBus
+from lore_eden.workflow.gate_service import GateResolution, GateService
 from lore_eden.workflow.gates import (
     GateAutofixResult,
     GateCycleResult,
@@ -46,7 +64,22 @@ from lore_eden.workflow.terminal import (
 )
 
 __all__ = [
+    "AUTOMATION",
     "TERMINAL_STAGE_KEY",
+    "AlreadyResolvedError",
+    "Approval",
+    "ApprovalKind",
+    "ApprovalNotFoundError",
+    "ApprovalStatus",
+    "ApprovalStore",
+    "DispatchResult",
+    "GateResolution",
+    "GateService",
+    "WorkflowCursor",
+    "advance",
+    "block",
+    "start",
+    "terminal_stage_key",
     "ChecklistExpander",
     "ClassifyRoute",
     "EventBus",
