@@ -16,7 +16,7 @@ one:
 | Lint policy, reusable CI workflows, `hooks:*` Taskfile | loregarden, plus the drifted copies elsewhere | planned |
 | MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | **shipped** — see [`python/`](python/) |
 | Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | **shipped** — see [`python/`](python/) |
-| Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | planned |
+| Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | **shipped** — see [`ts/`](ts/) |
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | planned |
 | Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | planned |
 | CLI executor + permission bridge, approvals | loregarden `server/loregarden/agents/` | planned |
@@ -36,6 +36,10 @@ individual gates, scopes, configuration and waivers.
 register tools into, the registry of third-party MCP servers a host makes
 reachable, and a workflow engine: stage routing, YAML templates, and the shell
 commands that gate a transition.
+
+[`ts/`](ts/) — the UI kit. Design tokens defined once and derived into the
+views callers need, plus a provider that publishes them as CSS custom properties
+and as values resolved for the active mode.
 
 The rest is planned, tracked as tickets rather than written here.
 
@@ -60,7 +64,8 @@ while this is built:
 
 The gates are deliberately dependency-free and run under whatever `python3` a
 repo hands them (3.10+). The TypeScript gate ships its own parser; run
-`npm install` in `gates/` once.
+`npm install` in `gates/` once. The UI kit needs `npm install` in `ts/`, and the
+harness `pip install -e "python[dev]"`.
 
 ## License
 
