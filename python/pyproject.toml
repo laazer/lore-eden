@@ -1,0 +1,28 @@
+[project]
+name = "lore-eden"
+version = "0.1.0"
+description = "A harness for driving agents and agent workflows: MCP transport, an external-server registry, and health checks"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "sqlmodel>=0.0.22",
+    "pydantic>=2.9.0",
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    # TestClient needs it; not a runtime dependency of the library itself.
+    "httpx>=0.27.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["lore_eden*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -14,7 +14,7 @@ one:
 |---|---|---|
 | CI gates + managed-hook installer | loregarden `.lefthook/scripts/` | **shipped** — see [`gates/`](gates/) |
 | Lint policy, reusable CI workflows, `hooks:*` Taskfile | loregarden, plus the drifted copies elsewhere | planned |
-| MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | planned |
+| MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | **shipped** — see [`python/`](python/) |
 | Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | planned |
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | planned |
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | planned |
@@ -31,6 +31,10 @@ projects happen to ship.
 lefthook pre-commit hooks and from orchestration stage transitions, against a repo
 whose layout they detect rather than assume. Its README covers installation, the
 individual gates, scopes, configuration and waivers.
+
+[`python/`](python/) — the agent harness. An MCP server you mount on FastAPI and
+register tools into, plus the registry of third-party MCP servers a host makes
+reachable, with real-handshake health checks.
 
 The rest is planned, tracked as tickets rather than written here.
 
