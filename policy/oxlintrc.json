@@ -1,0 +1,17 @@
+{
+  "$comment": "React/TypeScript lint baseline. rules-of-hooks is an error because a violated hook rule is a bug that reproduces intermittently; only-export-components is a warning because it is a fast-refresh concern, not a correctness one.",
+  "plugins": [
+    "react",
+    "typescript",
+    "oxc"
+  ],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ]
+  }
+}

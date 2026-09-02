@@ -1,0 +1,18 @@
+# Opt-in layer for projects using FastAPI/SQLModel-style APIs.
+#
+# Separate from the base because these are genuine findings that two specific
+# frameworks make idiomatic. A project not using them should keep the checks —
+# folding these into the base would silently weaken every other project's lint
+# to accommodate a dependency it does not have.
+#
+# Merge these into `ignore` alongside the base's.
+
+[lint]
+ignore = [
+    # FastAPI's dependency injection puts calls in argument defaults by design.
+    "B008",
+    # `Column == True` is SQLAlchemy/SQLModel filter syntax, not a mistake.
+    # `is True` cannot work: `is` is not overloadable, so it would break query
+    # building rather than tidy it.
+    "E712",
+]
