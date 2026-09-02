@@ -1,0 +1,15 @@
+# Git hooks for lore-eden.
+#
+# Install:  lefthook install
+#
+# The organization and silent-exception gates are shared with loregarden and are
+# installed into the block below by:
+#
+#   loregarden/scripts/install-workspace-hooks.sh /Users/jacobbrandt/workspace/lore-eden
+#
+# That block references loregarden's copy of the scripts by absolute path rather
+# than vendoring them, so the rules stay one thing across workspaces.
+
+pre-commit:
+  parallel: true
+  commands: {}
