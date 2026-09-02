@@ -312,10 +312,17 @@ describe('parseColor', () => {
     expect(parseColor('transparent')).toEqual({ r: 0, g: 0, b: 0, a: 0 });
   });
 
+  it('reads named CSS colours and hsl strings', () => {
+    expect(parseColor('rebeccapurple')).toEqual({ r: 102, g: 51, b: 153, a: 1 });
+    expect(parseColor('hsl(0, 100%, 50%)')).toEqual({ r: 255, g: 0, b: 0, a: 1 });
+  });
+
   it('refuses what it does not understand rather than answering black', () => {
-    expect(parseColor('rebeccapurple')).toBeUndefined();
+    // tinycolor2 answers an invalid colour with a valid-looking black, so a
+    // typo'd colour name renders as though somebody chose black.
     expect(parseColor('#12345')).toBeUndefined();
     expect(parseColor('not a colour')).toBeUndefined();
+    expect(parseColor('chartruese')).toBeUndefined();
   });
 
   it('agrees with isValidHex', () => {
@@ -325,9 +332,11 @@ describe('parseColor', () => {
       expect(isValidHex(hex)).toBe(true);
       expect(parseColor(hex)).toBeDefined();
     }
+    // A named colour is a valid colour and not a valid hex.
     for (const bad of ['#12345', '#gg0000', 'blue']) {
       expect(isValidHex(bad)).toBe(false);
     }
+    expect(parseColor('blue')).toBeDefined();
   });
 });
 
@@ -359,8 +368,8 @@ describe('colour conversion', () => {
 
 describe('EasyColor', () => {
   it('throws on input it cannot parse', () => {
-    expect(() => new EasyColor('chartreuse')).toThrow(ColorParseError);
-    expect(EasyColor.from('chartreuse')).toBeUndefined();
+    expect(() => new EasyColor('chartruese')).toThrow(ColorParseError);
+    expect(EasyColor.from('chartruese')).toBeUndefined();
     expect(EasyColor.from('#abc')).toBeInstanceOf(EasyColor);
   });
 
@@ -391,20 +400,22 @@ describe('EasyColor', () => {
   });
 
   it('brightens by adding to each channel', () => {
-    // 0x80 = 128, plus round(255 * 0.10) = 26, is 154 = 0x9a.
-    expect(new EasyColor('#808080').brighter(10).hex).toBe('#9a9a9a');
+    // Adds `-Math.round(255 * -0.10)`, and JS rounds -25.5 to -25, so the step
+    // is 25 rather than the 26 that `Math.round(255 * 0.10)` would give.
+    // Writing this arithmetic by hand instead of deferring to the library is
+    // how that off-by-one gets shipped.
+    expect(new EasyColor('#808080').brighter(10).hex).toBe('#999999');
     expect(new EasyColor('#ffffff').brighter(50).hex).toBe('#ffffff');
   });
 
   it('darkens by reducing lightness', () => {
-    // #808080 is l ≈ 0.502; less 0.10 is 0.402, which is 0x67.
-    expect(new EasyColor('#808080').darken(10).hex).toBe('#676767');
+    expect(new EasyColor('#808080').darken(10).hex).toBe('#666666');
     expect(new EasyColor('#000000').darken(50).hex).toBe('#000000');
   });
 
   it('leaves its argument untouched in the static helpers', () => {
-    expect(EasyColor.darkenHex('#808080', 10)).toBe('#676767');
-    expect(EasyColor.brighterHex('#808080', 10)).toBe('#9a9a9a');
+    expect(EasyColor.darkenHex('#808080', 10)).toBe('#666666');
+    expect(EasyColor.brighterHex('#808080', 10)).toBe('#999999');
   });
 
   it('picks readable text', () => {

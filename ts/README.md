@@ -402,21 +402,23 @@ without breaking `em` and `vh`. One regex has neither problem.
 `unitNumber()` is `0`; `unitNumber('nonsense')` is `NaN`. "Nobody set this" and
 "somebody set this to nonsense" want different reactions from the caller.
 
-### Colour carries no dependency
+### Colour wraps tinycolor2, immutably
 
-`EasyColor` implements its own conversions rather than wrapping a colour
-library. One application can spend a dependency on six methods; a shared
-library charges that dependency to every consumer, including the ones that
-only wanted the `ColorString` type.
+`EasyColor` is a thin wrapper over `tinycolor2` — ~15KB that already knows
+every CSS colour format. Writing the conversions by hand instead landed two
+silent off-by-ones against it, one of which turns on `Math.round(-25.5)` being
+`-25` rather than `-26`. That is what a colour library is for.
 
 `brighter` adds to each RGB channel and `darken` reduces HSL lightness — the
-two are not inverses. That asymmetry is inherited deliberately from what the
-source's palette was tuned against; correcting it would shift every derived
-colour.
+two are not inverses. The asymmetry is the library's, and it is what the
+source's palette was tuned against.
 
-A colour it cannot parse is an error, not black. `parseColor` returns
-`undefined` and the constructor throws, so a mistyped colour name is visible
-rather than rendering as a deliberate-looking dark grey.
+The wrapper adds two things. It is **immutable**: `tinycolor2`'s `brighten` and
+`darken` mutate the receiver and return it, so under a fluent API two callers
+holding one colour change it under each other, and `darkenHex` leaves its input
+darkened. And a colour it cannot parse is an **error**, not black — the library
+answers an invalid colour with a valid-looking black, so a mistyped colour name
+renders as though somebody chose it.
 
 ### Border properties come from a table
 
