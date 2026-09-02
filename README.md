@@ -19,6 +19,7 @@ one:
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | **shipped** — see [`ts/`](ts/) |
 | Responsive breakpoints + window layout (named regions, z-ladder) | loremaker `client/src/common/`, `theme/` | **shipped** — see [`ts/`](ts/) |
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | **shipped** — see [`ts/`](ts/) |
+| CSS value layer (typed lengths, geometry, borders, anchoring, colour) | loremaker `client/src/styles/`, `color/`, `common/geometry` | **shipped** — see [`ts/`](ts/) |
 | Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | **shipped** — see [`ts/`](ts/) |
 | CLI executor + permission bridge | loregarden `server/loregarden/agents/` | **shipped** — see [`python/`](python/) |
 | Approvals + orchestration dispatch | loregarden `services/orchestration.py` | **shipped** — see [`python/`](python/) |
@@ -43,7 +44,10 @@ commands that gate a transition.
 callers need, a provider that publishes them as CSS custom properties and as
 values resolved for the active mode, and a pane/canvas layout system: two
 arrangements over one pane implementation, sized by tier and persisted through a
-queue that will not lose an edit to the one before it.
+queue that will not lose an edit to the one before it. Under it, a CSS value
+layer: lengths that know their unit and refuse to be added to a different one,
+rectangles, structured border props, and a colour type that treats an
+unrecognised colour as an error rather than as black.
 
 The rest is planned, tracked as tickets rather than written here.
 

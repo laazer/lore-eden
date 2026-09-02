@@ -363,3 +363,64 @@ factor in a split grid; the flex here is breakpoints.
 
 A hidden region renders `display: none`; a zero-height one still holds an empty
 box open. Collapsing the two leaves a gap with no visible cause.
+
+## CSS values as data
+
+`style/` turns the strings you would otherwise concatenate into values you can
+compute with: lengths that know their unit, rectangles, structured border props,
+anchoring, and colour.
+
+```ts
+import { styleUnit, makeBorderStyles, EasyColor, marginFromAnchor } from '@lore-eden/ui';
+
+styleUnit('10%').mult(3).asString;              // '30%'
+styleUnit('10px').plusU(styleUnit('5%'));       // throws UnitMismatchError
+makeBorderStyles({ style: 'solid', weight: 2, topLeft: { radius: 4 } });
+// { borderStyle: 'solid', borderWidth: '2px', borderTopLeftRadius: '4px' }
+EasyColor.contrastingHex('#1e1e1e');            // '#ffffff'
+marginFromAnchor('left');                       // left, vertically centred
+```
+
+### The unit check is the point
+
+Adding a `%` to a `px` is a question with no answer. `plusU`/`minusU` throw
+`UnitMismatchError` rather than pick one, because a layout that silently picks
+one is wrong in a way nobody can see.
+
+Scaling by a plain number — `mult`, `div` — always means something, so those
+take numbers. There is no `multU`/`divU`: 100px × 2px is 200px², and a method
+that returns it labelled `px` is lying.
+
+### Parsing is a regex, not a search for unit names
+
+Searching a string for `"em"` finds it inside `"2rem"`. That is how the source
+parsed `2rem` as `NaN`, and why `rem` and `vw` could not be added to the list
+without breaking `em` and `vh`. One regex has neither problem.
+
+### Absent and unparseable are different
+
+`unitNumber()` is `0`; `unitNumber('nonsense')` is `NaN`. "Nobody set this" and
+"somebody set this to nonsense" want different reactions from the caller.
+
+### Colour carries no dependency
+
+`EasyColor` implements its own conversions rather than wrapping a colour
+library. One application can spend a dependency on six methods; a shared
+library charges that dependency to every consumer, including the ones that
+only wanted the `ColorString` type.
+
+`brighter` adds to each RGB channel and `darken` reduces HSL lightness — the
+two are not inverses. That asymmetry is inherited deliberately from what the
+source's palette was tuned against; correcting it would shift every derived
+colour.
+
+A colour it cannot parse is an error, not black. `parseColor` returns
+`undefined` and the constructor throws, so a mistyped colour name is visible
+rather than rendering as a deliberate-looking dark grey.
+
+### Border properties come from a table
+
+`borderTopLeftRadius` and `border-left-width` are spelled out, per side and per
+corner, rather than assembled from fragments. An assembled name can be one no
+browser knows — and React drops an unknown style property without a word, so
+the failure is a border that quietly does not appear.
