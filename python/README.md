@@ -379,3 +379,81 @@ so.
 Approving a gate leaves the item on a stage ready to run, and asking the operator
 to then press Run is a second decision carrying no information — but *what*
 running means is the host's.
+
+## Running a stage
+
+`lore_eden.runner` is the loop that joins the two halves. Before it, the workflow
+package could say which stage is next and the agents package could run a
+subprocess, and nothing connected them — so every host wrote this loop, and this
+loop is where all the decisions are.
+
+```python
+from lore_eden.runner import AgentBinding, AgentRegistry, StageRunner
+
+registry = AgentRegistry()
+registry.register(AgentBinding(agent_id="writer", prompt=Draft(), policy=my_policy))
+registry.register(AgentBinding(agent_id="critic", prompt=Critique(), policy=my_policy))
+
+runner = StageRunner(
+    registry=registry, stages=stages, transitions=transitions,
+    workspace_root=repo, prompt_dir=repo / ".prompts",
+    gates=GatesConfig(enabled=True, commands=["pytest"]),
+)
+
+execution = runner.run_stage(cursor)
+cursor = execution.dispatch.cursor
+```
+
+Resolve the agent, build the prompt, run it through the bridge, judge the run,
+gate it, advance the cursor.
+
+### Exit 0 is not a pass
+
+The rule the package exists to hold. A CLI agent exiting 0 means the process
+ended; it says nothing about whether the work was done. An agent that misread the
+task, ran out of context, or decided the request was impossible all exit 0 after
+saying so politely.
+
+Mapping `returncode == 0` to a pass is the most tempting shortcut available,
+because it works in every happy-path test anyone writes. So the default reader
+**requires an explicit report**:
+
+```
+STAGE-OUTCOME: pass
+STAGE-OUTCOME: reject   the opening does not say what this is about
+```
+
+Anything else is a reject carrying a reason that names *which* failure it was —
+a run that crashed, one that timed out, one that ended in silence, and one that
+finished chattily without a verdict are four different problems and a caller has
+to tell them apart. `StageReport.reported` says whether the verdict came from the
+agent or was inferred.
+
+The last matching line wins, not the first: an agent that reconsiders leaves
+both, and its final word is the one it meant.
+
+### Gates run only on a pass
+
+Gating work the agent has already disowned spends a test suite to confirm
+something known. A gate that then fails turns the pass into a reject, and
+`StageExecution.gate_blocked` distinguishes that from the agent rejecting its own
+work — same outcome, different conversation with whoever looks at it next.
+
+### Agent resolution is one function
+
+`resolve_agent(stage, override=..., default=...)` — precedence stated, no I/O,
+testable without running anything. Override, then the stage, then a host default.
+
+This is a module rather than two lines because the source project resolved it
+from three places at once with no stated order, and the result is a filed bug: a
+stage honours a **stale** pin, dispatches to the wrong agent, which routes back,
+which reads the same stale pin. A loop costing a full agent run per iteration.
+
+The failure was never that three sources is too many — it was that the
+precedence lived in the order of some `if` statements spread across a service,
+so nobody could see it, test it, or say what it was. `AgentResolution.explain()`
+names the winner and what lost.
+
+**An override is consumed.** `consumes_override` tells the caller to clear the
+stored pin, because a pin that outlives the run it was set for is read again by
+the next one — which is the loop above.

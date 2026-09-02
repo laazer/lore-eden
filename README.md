@@ -65,6 +65,18 @@ shipped before.
 Approvals are a separate concern — `GateService` parks a work item on a decision
 a human or another system has to make, and resumes it when the answer arrives.
 
+`lore_eden.runner` joins the two halves: resolve which agent runs a stage, build
+its prompt, run it through the bridge, judge the result, gate it, advance.
+
+```python
+execution = StageRunner(registry=registry, stages=stages, ...).run_stage(cursor)
+```
+
+**Exit 0 is not a pass.** A CLI agent exiting 0 means the process ended, not that
+the work was done — an agent that misread the task or ran out of context exits 0
+after saying so politely. The default reader requires the agent to report a
+verdict, and rejects anything it cannot read one from.
+
 `lore_eden.agents` supervises a CLI agent as a subprocess: `ProcessSupervisor`
 enforces an idle timeout distinctly from a hard one (a silent agent and a slow
 agent are different problems), and `PermissionBridge` turns the agent's
