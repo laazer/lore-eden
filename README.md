@@ -20,7 +20,7 @@ one:
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | **shipped** — see [`ts/`](ts/) |
 | Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | **shipped** — see [`ts/`](ts/) |
 | CLI executor + permission bridge | loregarden `server/loregarden/agents/` | **shipped** — see [`python/`](python/) |
-| Approvals + orchestration dispatch | loregarden `services/orchestration.py` | planned |
+| Approvals + orchestration dispatch | loregarden `services/orchestration.py` | **shipped** — see [`python/`](python/) |
 
 The harness is meant to be usable for agent work that has nothing to do with
 writing code, and extensible with MCP servers and APIs beyond the ones the source

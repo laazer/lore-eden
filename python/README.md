@@ -230,3 +230,69 @@ makes it a timeout that works for every case except the one it was written for.
   comes hangs rather than exits.
 - **A result event can report failure while the process exits 0.** Reading only
   the exit code calls that a success.
+
+
+## Dispatch and approvals
+
+Moving a work item through its workflow, and asking a human when a stage needs
+signing off.
+
+```python
+from lore_eden.workflow import GateService, WorkflowCursor, advance, start
+
+cursor = start(WorkflowCursor(item_id="app-1"), stages).cursor
+cursor = advance(cursor, stages, transitions).cursor
+```
+
+The item is a **work item**, and this knows almost nothing about it: an id, a
+cursor, which stages resolved, and somewhere to record why it is stuck. The
+version this came from was typed against one product's ticket model in every
+method, which is why the same dispatch logic could not be reused for anything
+else even though none of it was ticket-specific.
+
+State is a **value**, not a row. A cursor goes in and a new one comes out; the
+host maps it to and from its own storage. That is what lets all of this be
+tested without a database.
+
+### Approvals name a subject, not a ticket
+
+```python
+Approval(subject_type="grant_application", subject_id="app-1", title="Fund it")
+```
+
+The record this came from had four foreign keys into one product's schema, which
+is what stopped it being used for anything else. A type and an id means one store
+holds approvals for whatever a host has.
+
+The keys are **gone rather than nullable**: a nullable FK still constrains what
+can be stored to rows in that table, which is the coupling, and a column nothing
+references reads as an oversight.
+
+### Three outcomes, not two
+
+- **approved** — the stage passes, the item moves on
+- **approved with rework** — the gate is satisfied *and* something must be redone
+  first. A reviewer saying "yes, but fix the budget line" is not rejecting, and
+  forcing it into a rejection loses the difference between "this failed" and
+  "this passed, with follow-up"
+- **rejected** — back to the previous stage, or blocked in place if there is
+  nowhere to send it
+
+### Auto-approval still writes a row
+
+A gate that auto-approved silently would be indistinguishable from one that never
+ran, so "was this signed off, and by whom?" would have no answer for exactly the
+runs where it matters most. `resolved_by` distinguishes a person from
+`AUTOMATION`.
+
+### Answering a stage the item has left is refused
+
+The item moves on while a question sits unanswered; applying the answer to
+wherever it is *now* would resolve a stage nobody asked about. It blocks and says
+so.
+
+### Resuming is a hook
+
+Approving a gate leaves the item on a stage ready to run, and asking the operator
+to then press Run is a second decision carrying no information — but *what*
+running means is the host's.
