@@ -193,3 +193,49 @@ def test_block_points_at_the_given_gates_root(config):
     install(config)
     text = config.read_text(encoding="utf-8")
     assert str(GATES_ROOT / "py_organization_check.py") in text
+
+
+def test_self_install_writes_repo_relative_paths(tmp_path):
+    """A repo installing its own gates must not commit a path from one machine.
+
+    lore-eden's own lefthook.yml is committed and public: an absolute path there
+    means every clone gets hooks pointing at a directory that does not exist,
+    and the gates quietly never run.
+    """
+    repo = tmp_path / "selfhosted"
+    (repo / "gates" / "lore_eden_gates").mkdir(parents=True)
+    config = repo / "lefthook.yml"
+    config.write_text(MINIMAL_CONFIG, encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(INSTALLER),
+            "--config",
+            str(config),
+            "--gates-root",
+            str(repo / "gates" / "lore_eden_gates"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    text = config.read_text(encoding="utf-8")
+    assert str(tmp_path) not in text, f"absolute path leaked into the block:\n{text}"
+    assert "gates/lore_eden_gates/py_organization_check.py" in text
+
+
+def test_external_install_keeps_the_absolute_path(tmp_path):
+    """Pointing every repo at one checkout is what stops them drifting, so an
+    install from outside the target must stay absolute."""
+    target = tmp_path / "other-repo"
+    target.mkdir()
+    config = target / "lefthook.yml"
+    config.write_text(MINIMAL_CONFIG, encoding="utf-8")
+
+    assert install(config).returncode == 0
+
+    text = config.read_text(encoding="utf-8")
+    assert str(GATES_ROOT / "py_organization_check.py") in text

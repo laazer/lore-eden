@@ -1,56 +1,62 @@
 # lore-eden
 
-Shared libraries extracted from [loregarden](../loregarden) and [loremaker](../loremaker):
-an agent harness (MCP transport, stage orchestration, CLI agent execution, approvals) and a
-UI kit (design tokens, pane/canvas layout, chat primitives).
+Shared libraries for building on agents: a harness for driving agent workflows (MCP
+transport, a stage state machine, CLI agent execution, approvals), a UI kit
+(design tokens, a pane/canvas layout system, chat primitives), and a set of
+repo-agnostic CI gates.
 
-Nothing here is written from scratch. Every module arrives by extraction from one of the two
-source projects, chosen per layer by which implementation was already the stronger one:
+Nothing here is written from scratch. Every module arrives by extraction from one
+of two existing projects — `loregarden`, an agent SDLC control plane, and
+`loremaker` — chosen per layer by which implementation was already the stronger
+one:
 
-| Layer | Extracted from |
-|---|---|
-| Shared CI gates + managed-block installer | loregarden `.lefthook/scripts/`, `scripts/install-workspace-hooks.sh` |
-| Shared lint policy, reusable CI workflows, `hooks:*` Taskfile | loregarden + the drifted copies in loremaker, blobert, corpocoin, bridgepath |
-| MCP transport + external-server registry | loregarden `server/loregarden/mcp/`, `services/mcp_registry.py` |
-| Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/`, `services/gate_runner.py` |
-| Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/tokens.ts`, `theme/` |
-| Pane/canvas layout (split-grid, free-placement, size tiers, z-order) | loregarden `client/src/lib/canvasLayout.ts`, `paneSize.ts`, `components/views/` |
-| Chat primitives (composer, message list, streaming) | loregarden `client/src/components/studio/StudioChat.tsx`, `components/chat/` |
-| CLI executor + permission bridge, approvals | loregarden `server/loregarden/agents/executors/`, `services/orchestration.py` |
+| Layer | Extracted from | Status |
+|---|---|---|
+| CI gates + managed-hook installer | loregarden `.lefthook/scripts/` | **shipped** — see [`gates/`](gates/) |
+| Lint policy, reusable CI workflows, `hooks:*` Taskfile | loregarden, plus the drifted copies elsewhere | planned |
+| MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | planned |
+| Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | planned |
+| Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | planned |
+| Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | planned |
+| Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | planned |
+| CLI executor + permission bridge, approvals | loregarden `server/loregarden/agents/` | planned |
 
-## Status
+The harness is meant to be usable for agent work that has nothing to do with
+writing code, and extensible with MCP servers and APIs beyond the ones the source
+projects happen to ship.
 
-Scaffold only. Work is tracked as tickets in loregarden under the `lore-eden` workspace.
+## What's here now
+
+[`gates/`](gates/) — organization, safety and diff-scoping gates that run from
+lefthook pre-commit hooks and from orchestration stage transitions, against a repo
+whose layout they detect rather than assume. Its README covers installation, the
+individual gates, scopes, configuration and waivers.
+
+The rest is planned, tracked as tickets rather than written here.
 
 ## Extraction rules
 
-These are load-bearing, not aspirational — they are how the two source projects avoid breaking
+Load-bearing, not aspirational — they are how the source projects avoid breaking
 while this is built:
 
-1. **Copy, don't move.** An extraction ticket copies code here. It does not delete or rewrite
-   the source file in loregarden/loremaker. Both projects keep running untouched.
-2. **Cut-over is a separate ticket per component.** Its acceptance criterion is "the source
-   project's existing test suite is still green after switching its import to lore-eden" — not
-   "lore-eden exists." Rollback is reverting one import-switch commit; the local code is still
-   there until a later cleanup ticket.
-3. **Consumed by path link while the API moves.** `npm workspaces` / `pip install -e` from the
-   consuming repo. No publishing until the interfaces have stabilized against both consumers.
-4. **Every cut-over runs the consuming project's own gates**, not just lore-eden's.
+1. **Copy, don't move.** An extraction copies code here. It does not delete or
+   rewrite the source file. The source projects keep running untouched.
+2. **Cut-over is separate, one component at a time.** Its bar is "the consuming
+   project's existing test suite is still green after switching to lore-eden" —
+   not "lore-eden exists." Rollback is reverting one commit; the original code is
+   still there until a later cleanup.
+3. **Consumed by path link while the API moves.** No publishing until the
+   interfaces have stabilized against a second consumer.
+4. **Every cut-over runs the consuming project's own gates**, not just these.
+5. **This repo grades itself with its own gates.** If they cannot be lived with
+   here, they should not be installed anywhere else.
 
-## Note on the gate library
+## Requirements
 
-The shared gates are the one part of this that already exists and already works cross-repo:
-loregarden's `.lefthook/scripts/` gates detect repo layout rather than assuming it, and are
-installed into other repos as a marker-delimited managed block. blobert and this repo both
-carry that block today.
+The gates are deliberately dependency-free and run under whatever `python3` a
+repo hands them (3.10+). The TypeScript gate ships its own parser; run
+`npm install` in `gates/` once.
 
-What they lack is a home. Both installed blocks reference loregarden by absolute filesystem
-path with no versioning, and the two projects that predate the installer (loremaker, blobert)
-still run stale vendored forks of the same files. Giving those gates a versioned package is
-the first ticket for a reason.
+## License
 
-## Layout
-
-    python/    agent harness (FastAPI/Pydantic v2, Python 3.11)
-    ts/        UI kit (React 19 + TypeScript)
-    gates/     shared CI gates, hooks installer, lint policy, reusable workflows
+AGPL-3.0. See [LICENSE](LICENSE).

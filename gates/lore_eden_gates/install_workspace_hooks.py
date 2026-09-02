@@ -100,7 +100,29 @@ MANAGED_GATES: Tuple[ManagedGate, ...] = (
 MANAGED_COMMAND_NAMES = tuple(gate.name for gate in MANAGED_GATES)
 
 
-def render_block(gates_root: Path, indent: str) -> List[str]:
+def script_path(gates_root: Path, repo_root: Optional[Path], script: str) -> str:
+    """How the block should spell the path to one gate script.
+
+    Absolute when the gates live outside the repo being installed into — which
+    is the normal case, and is deliberate: pointing at one checkout is what
+    stops each repo accumulating its own drifting copy.
+
+    Repo-relative when the gates live *inside* the target repo. That is this
+    repo installing its own gates, and an absolute path there is a path from
+    one machine: committed to a shared repo, every clone gets hooks pointing at
+    a directory that does not exist, and the gates quietly never run. Lefthook
+    executes commands from the repo root, so a relative path resolves.
+    """
+    full = (gates_root / script).resolve()
+    if repo_root is None:
+        return str(full)
+    try:
+        return str(full.relative_to(repo_root.resolve()))
+    except ValueError:
+        return str(full)
+
+
+def render_block(gates_root: Path, indent: str, repo_root: Optional[Path] = None) -> List[str]:
     """The managed block, pointing at the gate scripts in ``gates_root``."""
     body = [
         BEGIN_MARKER,
@@ -114,7 +136,8 @@ def render_block(gates_root: Path, indent: str) -> List[str]:
                 f"  name: {gate.title} (lore-eden)",
                 "  priority: 1",
                 f'  glob: "{gate.glob}"',
-                f"  run: {gate.runner} {gates_root / gate.script} {{staged_files}}",
+                f"  run: {gate.runner} {script_path(gates_root, repo_root, gate.script)}"
+                " {staged_files}",
             ]
         )
     body.append(END_MARKER)
@@ -246,7 +269,7 @@ def main() -> int:
         return 1
 
     commands_index, entry_indent = located
-    block = render_block(Path(args.gates_root), entry_indent)
+    block = render_block(Path(args.gates_root), entry_indent, repo_root=config.parent)
 
     if existing == block:
         print(f"ok: {config.parent} already current")

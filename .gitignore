@@ -8,3 +8,14 @@ node_modules/
 dist/
 build/
 .DS_Store
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+
+# Test + tooling caches
+.tox/
+htmlcov/
+.coverage
+coverage.xml

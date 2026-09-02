@@ -4,7 +4,7 @@
 #
 # The shared gates live in gates/ and are installed into the block below by:
 #
-#   gates/scripts/install-workspace-hooks.sh /Users/jacobbrandt/workspace/lore-eden
+#   gates/scripts/install-workspace-hooks.sh "$PWD"
 #
 # lore-eden grades itself with its own gates — if they cannot be lived with
 # here, they should not be installed anywhere else.
@@ -19,25 +19,25 @@ pre-commit:
       name: Python organization guardrails (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 /Users/jacobbrandt/workspace/lore-eden/gates/lore_eden_gates/py_organization_check.py {staged_files}
+      run: python3 gates/lore_eden_gates/py_organization_check.py {staged_files}
     lore-eden-py-silent-except:
       name: Python silently-caught exceptions (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 /Users/jacobbrandt/workspace/lore-eden/gates/lore_eden_gates/py_silent_except_check.py {staged_files}
+      run: python3 gates/lore_eden_gates/py_silent_except_check.py {staged_files}
     lore-eden-py-git-subprocess:
       name: Python git subprocess routing (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 /Users/jacobbrandt/workspace/lore-eden/gates/lore_eden_gates/py_git_subprocess_check.py {staged_files}
+      run: python3 gates/lore_eden_gates/py_git_subprocess_check.py {staged_files}
     lore-eden-py-defensive-normalization:
       name: Python defensive normalization (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 /Users/jacobbrandt/workspace/lore-eden/gates/lore_eden_gates/py_defensive_normalization_check.py {staged_files}
+      run: python3 gates/lore_eden_gates/py_defensive_normalization_check.py {staged_files}
     lore-eden-ts-organization:
       name: TypeScript organization guardrails (lore-eden)
       priority: 1
       glob: "{*.ts,*.tsx,**/*.ts,**/*.tsx}"
-      run: node /Users/jacobbrandt/workspace/lore-eden/gates/lore_eden_gates/ts_organization_check.cjs {staged_files}
+      run: node gates/lore_eden_gates/ts_organization_check.cjs {staged_files}
     # <<< lore-eden gate guardrails (managed) <<<
