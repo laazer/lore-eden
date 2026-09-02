@@ -1,7 +1,7 @@
 # lore-eden (python)
 
-The agent harness. Today: MCP transport, and the registry of MCP servers a host
-makes reachable.
+The agent harness. Today: MCP transport, the registry of MCP servers a host
+makes reachable, and a workflow engine.
 
 ```bash
 pip install -e "python[dev]"
@@ -101,3 +101,69 @@ cd python && python -m pytest
 The health tests run a real MCP server over a real subprocess — one built from
 this package's own `McpServer`. Both halves are exercised against each other
 rather than against a fixture that agrees with itself.
+
+
+## Driving a workflow
+
+A workflow is a list of stages and the transitions between them, both data. This
+package routes the cursor and runs the gates; it has no idea what a stage *does*,
+and no idea what a work item is.
+
+```python
+from lore_eden.workflow import StateMachine, load_template
+
+template = load_template(Path("workflows/recipe.yaml"))
+plan = StateMachine.resolve_next_stage_key(template.stages, template.transitions, "cook")
+plan.to_key        # "taste"
+plan.upstream      # False
+```
+
+A reject follows its declared transition; a pass falls through to linear stage
+order. `reset_upstream_stages` puts the stages a reroute invalidated back to
+pending, and `skip_intermediate_stages` marks what a forward branch jumped over
+as `wont_do` — left pending they never resolve, and a work item derived from
+stage statuses would hang after finishing its branch.
+
+### Checklists
+
+A stage may carry a `checklist`. The version this was extracted from expanded
+three placeholders inline by reading fields off a software-ticket model. Those
+are one product's vocabulary, so expansion is a registry instead:
+
+```python
+expand_checklist(stage.checklist, {"{{tasting_notes}}": lambda panel: [...]}, panel)
+```
+
+Unregistered tokens pass through unchanged — dropping them would silently
+shorten a checklist its author wrote deliberately.
+
+### Gates
+
+Gates are configuration: command templates, run in a directory, with
+placeholders filled from a context you build.
+
+```python
+from lore_eden.workflow import GatesConfig, run_gates_with_autofix
+
+config = GatesConfig(enabled=True, commands=["ruff check ."], autofix_commands=["ruff check --fix ."])
+cycle = run_gates_with_autofix(config, repo_root=worktree, context={"transition": "draft_to_review"})
+```
+
+Nothing in the engine names a linter — that example is data you supplied.
+
+Two distinctions the outcomes preserve, both of which cost real time when they
+were collapsed:
+
+- **`UNAVAILABLE` is not `FAILED`.** A gate that timed out or is not on PATH
+  never ran. Reporting it as a failure sends it to the stage's agent to fix, and
+  no agent can install a toolchain it cannot see.
+- **`SKIPPED` is not `PASSED`.** A run that passed a real gate and one where
+  nothing was configured must not read the same.
+
+`run_gates_with_autofix` runs one repair cycle — fixers, then a re-run. Not a
+loop: if the fixers did not clear it, running them again will not either. What
+happens next is your escalation policy, and `autofix_agent_fallback` records the
+intent for it. A gate that could not *run* is never retried.
+
+**`repo_root` must be the tree the stage actually wrote in.** Run gates in a
+shared checkout and every one of them passes on work it never saw.
