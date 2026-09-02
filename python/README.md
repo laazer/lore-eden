@@ -457,3 +457,74 @@ names the winner and what lost.
 **An override is consumed.** `consumes_override` tells the caller to clear the
 stored pin, because a pin that outlives the run it was set for is read again by
 the next one — which is the loop above.
+
+## Storage
+
+Protocols first, implementations second — and that ordering is the point.
+Whichever schema gets written first becomes the thing everything couples to, so
+the interface has to exist before any schema does. The source project has no
+storage seam at all, which is what makes its orchestration hard to lift.
+
+```python
+from lore_eden.store import InMemoryCursorStore, InMemoryRunStore, RunRecord
+```
+
+`lore_eden.store` imports no database library. `lore_eden.store.sql` does, behind
+the `sql` extra:
+
+```bash
+pip install "lore-eden[sql]"
+```
+
+A host with its own database implements `CursorStore` and `RunStore` and installs
+neither. A test asserts the purity by importing `workflow`, `runner`, `agents` and
+`store` in a **subprocess** and inspecting its `sys.modules` — by the time the test
+file itself runs, its own imports have polluted the picture.
+
+The in-memory stores are not only a test double. A host running one work item at a
+time in one process — a script, a CLI, a scheduled job — needs no database, and
+making it install one would tax the simplest case. Both implementations run through
+the same test suite, which is what keeps the dict version a usable deployment rather
+than a stub that drifts.
+
+### A run that died is not a run that is going
+
+A process holding a `running` row that is then killed — a reboot, an eviction, a
+Ctrl-C — leaves that row saying `running` forever. Nothing can tell it from work in
+flight, so a UI shows it busy, a queue will not start the next item, and the work
+item reads as blocked. That is how a dead run becomes a blocked ticket nobody can
+explain.
+
+So a run carries a **heartbeat**, and `effective_status()` reports a stale `running`
+as `abandoned`. Computed, never stored: whatever kills the process is exactly the
+thing that stops it writing a final status, so a status only a live process could
+write is no use for describing a dead one.
+
+Read `effective_status()` anywhere a human or a queue acts on the answer. `status` is
+what was written; `effective_status()` is what is true.
+
+### Reading an override consumes it
+
+`take_agent_override` returns the pin **and clears it**, in one call, because the
+alternative is a caller that reads and forgets to clear — which is the source's
+stale-pin dispatch loop. `save_cursor` deliberately does not write the field either:
+a caller holding a record read *before* the take would otherwise put the pin back.
+
+### Foreign keys, and where the PRAGMA goes
+
+SQLite ignores foreign keys unless asked, **per connection**. A schema declaring them
+enforces nothing by default, so a test writing an orphan passes and proves the
+opposite of what it looks like it proves.
+
+`enforce_sqlite_foreign_keys()` registers the PRAGMA on the SQLAlchemy `Engine`
+*class*, so the application's engine, each test's, and a one-off script's all get it.
+Registered per engine, the one engine somebody forgot is the one that writes the
+orphan.
+
+### Migrations are append-only
+
+A migration that has run somewhere cannot be edited, because the database it ran
+against will not run it again — editing one produces two schemas both claiming the
+same version. Each guards its own changes and is safe to re-run, which is why there
+is no ledger table: a ledger is one more thing that can disagree with the schema it
+describes.
