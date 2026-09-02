@@ -17,7 +17,7 @@ one:
 | MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | **shipped** — see [`python/`](python/) |
 | Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | **shipped** — see [`python/`](python/) |
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | **shipped** — see [`ts/`](ts/) |
-| Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | planned |
+| Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | **shipped** — see [`ts/`](ts/) |
 | Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | planned |
 | CLI executor + permission bridge, approvals | loregarden `server/loregarden/agents/` | planned |
 
@@ -37,9 +37,11 @@ register tools into, the registry of third-party MCP servers a host makes
 reachable, and a workflow engine: stage routing, YAML templates, and the shell
 commands that gate a transition.
 
-[`ts/`](ts/) — the UI kit. Design tokens defined once and derived into the
-views callers need, plus a provider that publishes them as CSS custom properties
-and as values resolved for the active mode.
+[`ts/`](ts/) — the UI kit. Design tokens defined once and derived into the views
+callers need, a provider that publishes them as CSS custom properties and as
+values resolved for the active mode, and a pane/canvas layout system: two
+arrangements over one pane implementation, sized by tier and persisted through a
+queue that will not lose an edit to the one before it.
 
 The rest is planned, tracked as tickets rather than written here.
 
