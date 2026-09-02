@@ -112,6 +112,21 @@ class ToolRegistry:
         """The ``tools/list`` payload."""
         return [definition.as_payload() for definition in self._definitions.values()]
 
+    def names(self) -> list[str]:
+        """What is registered, in registration order.
+
+        Separate from :meth:`definitions`, which returns wire payloads. A host
+        asking "what do I offer?" wanted the names, and without this it either
+        digs them out of the payloads or reaches for a private attribute.
+        """
+        return list(self._definitions)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._handlers
+
+    def __len__(self) -> int:
+        return len(self._handlers)
+
     def call(self, name: str, arguments: dict[str, Any], context: Any) -> str:
         handler = self._handlers.get(name)
         if handler is None:

@@ -11,11 +11,15 @@ so the interface has to exist before any schema does.
 - :mod:`lore_eden.store.memory` — a dict. Enough for one process doing one
   thing at a time, which is a real deployment and not only a test.
 - :mod:`lore_eden.store.sql` — SQLModel, behind the ``sql`` extra.
+- :mod:`lore_eden.store.cursors` — converting between a stored cursor and the
+  workflow's own, which is the one thing a host using both packages needs and
+  had to write itself until an example proved it.
 
 Importing this package pulls in none of SQLModel; reach for
 ``lore_eden.store.sql`` explicitly when you want it.
 """
 
+from lore_eden.store.cursors import to_cursor_record, to_workflow_cursor
 from lore_eden.store.memory import InMemoryCursorStore, InMemoryRunStore
 from lore_eden.store.protocols import ApprovalStorage, CursorStore, RunStore
 from lore_eden.store.records import (
@@ -36,5 +40,7 @@ __all__ = [
     "RunRecord",
     "RunStatus",
     "RunStore",
+    "to_cursor_record",
+    "to_workflow_cursor",
     "utcnow",
 ]

@@ -528,3 +528,52 @@ against will not run it again — editing one produces two schemas both claiming
 same version. Each guards its own changes and is safe to re-run, which is why there
 is no ledger table: a ledger is one more thing that can disagree with the schema it
 describes.
+
+## A worked example
+
+[`examples/draft_and_critique.py`](examples/draft_and_critique.py) is a complete
+host in one file. Two agents take turns on a text file: one drafts, one
+critiques, and the critic can send it back.
+
+```bash
+python examples/draft_and_critique.py
+```
+
+```
+draft:pass
+critique:reject
+draft:pass
+critique:pass
+denied 4 tool call(s); 4 run(s) recorded
+```
+
+It exercises an MCP server the agents call back into, a workflow template with a
+reject edge and a terminal stage, a prompt builder per stage, a permission policy
+that denies one tool and allows the rest, a shell gate, and persistence.
+
+It runs a **fake** agent — CI has no authenticated `claude`, and an example that
+cannot run rots into a lie within two refactors. The real invocation is at the
+bottom of the file, commented, with the three things about it that are documented
+nowhere else.
+
+**It is deliberately not software work.** No tickets, no reviews, no acceptance
+criteria — because a harness for "interacting with agents" that can only express
+its own authors' job is not general, and the fastest way to find out is to make it
+do something else. A test asserts the example's code and the prompts reaching the
+agent contain none of that vocabulary.
+
+### What writing it found
+
+The point of building a host was to find the gaps, and it found two:
+
+- **Nothing converted a stored cursor to a workflow one.** `CursorRecord` holds
+  strings; `WorkflowCursor` holds `StageStatus` members. Every host using both
+  packages would have written that conversion. It is `to_workflow_cursor` /
+  `to_cursor_record` now.
+- **`ToolRegistry` could not list its tool names.** `definitions()` returns wire
+  payloads, so a host asking "what do I offer?" either dug through those or
+  reached for a private attribute. Added `names()`, `__contains__` and `__len__`.
+
+A test asserts the example imports only public names, and that each one appears in
+its package's `__all__` — a name importable but undiscoverable is the same gap in a
+quieter form.
