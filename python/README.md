@@ -230,6 +230,89 @@ makes it a timeout that works for every case except the one it was written for.
   comes hangs rather than exits.
 - **A result event can report failure while the process exits 0.** Reading only
   the exit code calls that a success.
+- **A run can report *nothing* and exit 0.** `BridgeOutcome.ok` requires a
+  result event, not just a clean exit — see below.
+
+
+## Building the command line
+
+`build_invocation` turns an adapter-neutral request into argv. It exists because
+every CLI spells the same six ideas differently, and several of the couplings
+between them are undocumented and silent when broken.
+
+```python
+from lore_eden.agents import CliAdapter, InvocationRequest, build_invocation, claude_oauth_env
+
+request = InvocationRequest(
+    adapter=CliAdapter.CLAUDE,
+    workspace_root=repo,
+    prompt_file=prompt_path,
+    interactive=True,          # hold stdin open so the bridge can answer
+    model="opus",
+    effort="high",
+    env=claude_oauth_env(token_file=cached_token),
+)
+invocation = build_invocation(request)
+```
+
+### What it knows that you would otherwise learn the hard way
+
+- **`claude -p --output-format stream-json` is rejected without `--verbose`.**
+- **Print mode needs `--include-partial-messages`** — it is the only stdout
+  heartbeat print mode produces, and without it a long silent think is
+  indistinguishable from a hung process, so the idle timeout fires on a working
+  agent. A bridged run already emits an event per message, so there the flag is
+  opt-in volume.
+- **`cursor-agent` has no `--input-format`**, so it cannot be bridged at all.
+  Asking for `interactive=True` raises `UnsupportedInvocationError` rather than
+  producing a command that hangs on stdin nobody will read. Same for codex and
+  opencode.
+- **Effort is not a flag everywhere.** `claude` takes `--effort`; **cursor folds
+  it into the model id** (`sonnet-4.5` → `sonnet-4.5-high`). A host that sets
+  effort on a cursor run expecting a flag gets the default effort and nothing
+  says so. `CliInvocation.model` records what was actually pinned.
+
+### The token, and the silence
+
+`claude` reads `CLAUDE_CODE_OAUTH_TOKEN`. Shell out without it and the CLI
+reports "not logged in" while the terminal that spawned it is signed in — its
+interactive session lives somewhere a subprocess cannot reach.
+
+Worse is an *expired* token: the CLI prints a login message and **exits 0**,
+having produced no stream. Exit code, no reported failure, no timeout — every
+signal says the run was fine, and a stage advances on work nobody did.
+
+So `BridgeOutcome.ok` requires `saw_result`: a run that reported nothing did not
+succeed, whatever it exited with. `ended_silently` separates that case from a
+real failure, because the remedy is different — it is an authentication problem
+on the host, and retrying gets the same silence.
+
+`claude_oauth_env` returns `{}` when there is no token rather than raising: an
+interactive host may be authenticated another way, and guessing that this is
+broken would break it.
+
+
+## Telling an agent what to do
+
+Prompt assembly is the most domain-specific thing in a harness and the one most
+often welded to the runner. In the source project `_build_prompt` ran to ~140
+lines of tickets, acceptance criteria, evidence ledgers and a stage-report
+contract — none of which means anything to a host doing something else.
+
+So the harness knows only that something takes a context and returns text:
+
+```python
+class Draft:
+    def build(self, context: PromptContext) -> str:
+        return f"Write about {context.values['topic']}."
+```
+
+`PromptContext` carries a free-form `values` mapping rather than named fields,
+because naming them means choosing a vocabulary and every candidate belongs to
+some particular host. `StaticPrompt` and `TemplatePrompt` cover the easy cases;
+`TemplatePrompt` **raises on a missing key** rather than rendering an empty slot,
+since a prompt with a hole gets answered anyway, badly, and the run then looks
+like a model failure rather than a wiring one.
 
 
 ## Dispatch and approvals
