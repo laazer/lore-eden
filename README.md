@@ -15,7 +15,7 @@ one:
 | CI gates + managed-hook installer | loregarden `.lefthook/scripts/` | **shipped** — see [`gates/`](gates/) |
 | Lint policy, reusable CI workflows, `hooks:*` Taskfile | loregarden, plus the drifted copies elsewhere | planned |
 | MCP transport + external-server registry | loregarden `server/loregarden/mcp/` | **shipped** — see [`python/`](python/) |
-| Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | planned |
+| Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | **shipped** — see [`python/`](python/) |
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | planned |
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | planned |
 | Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | planned |
@@ -33,8 +33,9 @@ whose layout they detect rather than assume. Its README covers installation, the
 individual gates, scopes, configuration and waivers.
 
 [`python/`](python/) — the agent harness. An MCP server you mount on FastAPI and
-register tools into, plus the registry of third-party MCP servers a host makes
-reachable, with real-handshake health checks.
+register tools into, the registry of third-party MCP servers a host makes
+reachable, and a workflow engine: stage routing, YAML templates, and the shell
+commands that gate a transition.
 
 The rest is planned, tracked as tickets rather than written here.
 
