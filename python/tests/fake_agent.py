@@ -15,6 +15,7 @@ Driven by argv so one script covers every scenario:
     fake_agent.py fail            emit a failed result event
     fake_agent.py ok              emit a successful result event
     fake_agent.py crash           exit non-zero without a result event
+    fake_agent.py expired         exit 0 with no stream at all (expired session)
 """
 
 from __future__ import annotations
@@ -99,6 +100,13 @@ def main() -> int:
     if mode == "crash":
         sys.stderr.write("something went wrong\n")
         return 3
+
+    if mode == "expired":
+        # What an expired `claude` OAuth session actually does: prints a login
+        # message and exits **0**, having emitted no stream at all. Judged on
+        # the exit code it is indistinguishable from a clean run.
+        sys.stderr.write("Invalid API key · Please run /login\n")
+        return 0
 
     emit({"type": "result", "subtype": "success", "is_error": False})
     return 0

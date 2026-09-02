@@ -44,6 +44,14 @@ class BridgeOutcome:
     session_id: str = ""
     #: True when the agent emitted a result event saying it failed.
     reported_failure: bool = False
+    #: True when the agent emitted a result event at all.
+    #:
+    #: An agent that never reports a result did not finish, whatever its exit
+    #: code says. This is the shape an expired `claude` OAuth session takes: it
+    #: prints a login message and **exits 0**, having produced no stream. Judged
+    #: on the exit code alone that is indistinguishable from a clean run, and a
+    #: stage would advance on work nobody did.
+    saw_result: bool = False
     #: Every request put to the policy, with what was decided.
     decisions: list[tuple[ToolPermissionRequest, PermissionDecision]] = field(
         default_factory=list
@@ -51,7 +59,17 @@ class BridgeOutcome:
 
     @property
     def ok(self) -> bool:
-        return self.result.ok and not self.reported_failure
+        return self.result.ok and self.saw_result and not self.reported_failure
+
+    @property
+    def ended_silently(self) -> bool:
+        """Exited cleanly having reported nothing — the expired-session shape.
+
+        Separated from a plain failure because the remedy is different: this is
+        almost always an authentication problem on the host, not something the
+        agent did, and a caller that retries it will get the same silence.
+        """
+        return self.result.ok and not self.saw_result
 
     @property
     def timed_out(self) -> TimeoutKind:
@@ -102,6 +120,8 @@ class PermissionBridge:
                 state.session_id = session
 
             finished, failed = result_payload_status(payload)
+            if finished:
+                state.saw_result = True
             if finished and failed:
                 state.reported_failure = True
 
@@ -133,6 +153,7 @@ class PermissionBridge:
             result=result,
             session_id=state.session_id,
             reported_failure=state.reported_failure,
+            saw_result=state.saw_result,
             decisions=state.decisions,
         )
 
@@ -176,6 +197,7 @@ class _RunState:
     proc: Any = None
     session_id: str = ""
     reported_failure: bool = False
+    saw_result: bool = False
     pending_responses: list[dict[str, Any]] = field(default_factory=list)
     decisions: list[tuple[ToolPermissionRequest, PermissionDecision]] = field(
         default_factory=list

@@ -264,3 +264,37 @@ class TestObservation:
         ).run()
 
         assert outcome.ok is True
+
+
+class TestSilentSuccess:
+    """A run that exits 0 having reported nothing did not succeed.
+
+    This is the shape an expired `claude` OAuth session takes: it prints a login
+    message and exits 0, producing no stream. Every signal the bridge had before
+    this — exit code, no reported failure, no timeout — says the run was fine.
+    A stage would advance on work nobody did.
+    """
+
+    def test_exit_zero_with_no_result_event_is_not_ok(self) -> None:
+        outcome = bridge("expired").run()
+        assert outcome.result.returncode == 0
+        assert outcome.result.ok, "the process itself exited cleanly"
+        assert not outcome.reported_failure, "nothing said it failed"
+        assert not outcome.saw_result
+        assert not outcome.ok, "but the run reported nothing, so it did not succeed"
+
+    def test_the_silent_case_is_distinguishable_from_a_reported_failure(self) -> None:
+        # The remedy differs: this is an authentication problem on the host, and
+        # a caller that retries it gets the same silence.
+        assert bridge("expired").run().ended_silently
+        assert not bridge("fail").run().ended_silently
+        assert not bridge("crash").run().ended_silently
+
+    def test_the_login_message_survives_for_a_caller_to_show(self) -> None:
+        assert "login" in bridge("expired").run().result.stderr
+
+    def test_a_normal_run_still_passes(self) -> None:
+        outcome = bridge("ok").run()
+        assert outcome.saw_result
+        assert outcome.ok
+        assert not outcome.ended_silently
