@@ -40,6 +40,7 @@ from lore_eden.agents import (
 from lore_eden.runner.registry import AgentBinding, AgentRegistry, AgentResolution
 from lore_eden.runner.report import ExplicitReportReader, ReportReader, StageReport
 from lore_eden.workflow.dispatch import DispatchResult, advance, block, start
+from lore_eden.workflow.terminal import is_terminal_stage
 from lore_eden.workflow.gates import GateRunResult, GatesConfig, run_gates
 from lore_eden.workflow.models import StageOutcome, WorkflowStageDef
 
@@ -60,6 +61,11 @@ class StageExecution:
     @property
     def outcome(self) -> StageOutcome:
         return self.report.outcome
+
+    @property
+    def already_finished(self) -> bool:
+        """True when there was nothing to do: the item is already at its end."""
+        return self.bridge is None and self.dispatch.finished
 
     @property
     def gate_blocked(self) -> bool:
@@ -121,6 +127,15 @@ class StageRunner:
                 return self._blocked(cursor, started, "This workflow has no stages.")
 
         definition = self.stage(cursor.stage_key)
+        if is_terminal_stage(definition):
+            # Nothing to run, and asking the registry would raise: a terminal
+            # stage names no agent, by definition. Reachable whenever a caller
+            # reads the cursor fresh rather than remembering it finished — a
+            # cron that fires once more, a duplicate queue message, an operator
+            # re-running a command. Crashing there reports a broken workflow
+            # for what is only a repeated call.
+            return self._at_the_end(cursor, definition)
+
         binding, resolution = self.registry.resolve(definition, override=agent_override)
 
         prompt = binding.prompt.build(
@@ -208,6 +223,21 @@ class StageRunner:
             json.dumps(build_user_message(prompt)) + "\n" if self.interactive else None
         )
         return bridge.run(stdin_text=stdin_text)
+
+    def _at_the_end(self, cursor, definition: WorkflowStageDef) -> StageExecution:
+        return StageExecution(
+            stage_key=definition.key,
+            agent_id="",
+            resolution=AgentResolution(agent_id="", source="none"),
+            prompt="",
+            bridge=None,
+            report=StageReport(
+                outcome=StageOutcome.PASS,
+                reason=f"{definition.key!r} ends this workflow; nothing left to run.",
+            ),
+            gate=None,
+            dispatch=DispatchResult(cursor=cursor, finished=True),
+        )
 
     def _blocked(self, cursor, dispatch: DispatchResult, reason: str) -> StageExecution:
         return StageExecution(

@@ -577,3 +577,36 @@ The point of building a host was to find the gaps, and it found two:
 A test asserts the example imports only public names, and that each one appears in
 its package's `__all__` — a name importable but undiscoverable is the same gap in a
 quieter form.
+
+### Resuming in a new process
+
+[`examples/resumable_host.py`](examples/resumable_host.py) runs **one stage per
+invocation** and exits — the shape a cron job, a queue worker or a CI step
+actually has. Nothing stays in memory between stages, so everything the next
+invocation needs has to be in the database.
+
+```bash
+while python examples/resumable_host.py --db run.db --workspace ./work; do :; done
+```
+
+```
+draft:pass -> critique
+critique:reject -> draft
+draft:pass -> critique
+critique:pass -> done
+```
+
+Each of those lines is a separate interpreter. The tests drive it as subprocesses
+for that reason: a mistake that only bites across a real process boundary — a
+datetime that does not survive SQLite, a pin consumed in memory but not on disk —
+would not show in an in-process loop.
+
+It also demonstrates the sweep: a run row left saying `running` by a process that
+never came back is found by `stale_runs` and closed out by the next invocation,
+with a reason saying what happened.
+
+**Running a finished item again is a no-op**, not a crash. A terminal stage names
+no agent, so the runner used to raise `UnknownAgentError` — reachable whenever a
+caller reads the cursor fresh rather than remembering it finished, which is a cron
+firing once more, a duplicate queue message, or an operator re-running a command.
+The in-process example never hit it because its loop broke on `finished` first.

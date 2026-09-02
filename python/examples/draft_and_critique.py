@@ -26,8 +26,9 @@ undocumented.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
+
+from fake_bridge import make_fake_bridge_factory
 
 from lore_eden.agents import PermissionDecision, TemplatePrompt
 from lore_eden.mcp import McpServer, ServerInfo, ToolRegistry
@@ -42,9 +43,6 @@ from lore_eden.store import (
     to_workflow_cursor,
 )
 from lore_eden.workflow import GatesConfig, WorkflowStageDef, WorkflowTemplate
-
-FAKE_AGENT = Path(__file__).resolve().parent / "fake_writer.py"
-
 
 # --- what the agents may call back into -------------------------------------
 
@@ -137,23 +135,6 @@ def build_runner(workspace: Path, *, policy: HousePolicy, script: dict[str, str]
         AgentBinding(agent_id="critic", prompt=CRITIQUE_PROMPT, policy=policy, idle_timeout=10.0)
     )
 
-    def make_bridge(*, argv, **kwargs):
-        from lore_eden.agents import PermissionBridge
-
-        stage = next(part for part in argv if part.endswith(".md")).rsplit("-", 1)[-1][:-3]
-        kwargs.pop("cwd", None)
-        return PermissionBridge(
-            argv=[
-                sys.executable,
-                str(FAKE_AGENT),
-                script[stage],
-                # Attempt state in the workspace, not beside the script: a file
-                # left by one run would otherwise decide the next one.
-                str(workspace / f".{stage}.count"),
-            ],
-            **kwargs,
-        )
-
     return StageRunner(
         registry=registry,
         stages=list(TEMPLATE.stages),
@@ -163,7 +144,7 @@ def build_runner(workspace: Path, *, policy: HousePolicy, script: dict[str, str]
         # `true` is a stand-in for whatever proves the work: a linter, a test
         # suite, a spell-checker. It runs only after the agent claims a pass.
         gates=GatesConfig(enabled=True, commands=["true"]),
-        make_bridge=make_bridge,
+        make_bridge=make_fake_bridge_factory(workspace, script),
     )
 
 
