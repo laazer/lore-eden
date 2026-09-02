@@ -10,4 +10,5 @@ export * from './theme';
 export * from './layout';
 export * from './panes';
 export * from './surfaces';
+export * from './chat';
 export { OverflowMenu, OverflowMenuItem, OverflowMenuSection } from './components/OverflowMenu';

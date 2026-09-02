@@ -18,7 +18,7 @@ one:
 | Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/` | **shipped** — see [`python/`](python/) |
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/` | **shipped** — see [`ts/`](ts/) |
 | Pane/canvas layout (split-grid, free placement, size tiers, z-order) | loregarden `client/src/lib/`, `components/views/` | **shipped** — see [`ts/`](ts/) |
-| Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | planned |
+| Chat primitives (composer, message list, streaming) | loregarden `client/src/components/` | **shipped** — see [`ts/`](ts/) |
 | CLI executor + permission bridge, approvals | loregarden `server/loregarden/agents/` | planned |
 
 The harness is meant to be usable for agent work that has nothing to do with

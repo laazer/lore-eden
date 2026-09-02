@@ -1,6 +1,6 @@
 # lore-eden (ts)
 
-The UI kit. Today: design tokens and theming, and a pane/canvas layout system.
+The UI kit: design tokens and theming, a pane/canvas layout system, and chat.
 
 ```bash
 cd ts && npm install
@@ -212,3 +212,69 @@ Three things the host supplies, because they are its decisions and not this
 package's: the primitive **picker**, a pane's **settings editor**, and which
 primitives the **registry** offers. Omit the settings slot and the settings
 control does not appear — a button that opens nothing is a control that lies.
+
+
+## Chat
+
+A transcript and a composer, with three seams where the source had one product
+hardcoded.
+
+```tsx
+<ChatMessages
+  messages={messages}
+  isThinking={session.isBusy}
+  activeTurnId={session.activeTurnId}
+  partRegistry={parts}
+  renderAvatar={({ activity }) => <MyAvatar state={activity} />}
+/>
+<ChatComposer value={draft} onChange={setDraft} onSubmit={send} onStop={stop} />
+```
+
+### Streaming is a transport
+
+Reasoning arrives while a turn runs, and every host does it differently — a
+websocket, SSE, a poll, a generator in a test. Supply one:
+
+```tsx
+<ThinkingTransportContext.Provider value={{ subscribe: (turnId, onFrame) => … }}>
+```
+
+Frames are **whole transcripts, not deltas**, which is what lets a transport mix
+a socket with a catch-up poll without the two agreeing on ordering. With no
+transport the transcript renders settled messages and no live stream — a working
+chat, not a broken one.
+
+### Parts are a registry
+
+A message can carry structured content beyond its text. The source had twenty
+such parts, each a card for one of its own nouns; none of that travels, because
+the parts *are* the product.
+
+```tsx
+new ChatPartRegistry()
+  .register('diff', DiffCard)
+  .setFallback(UnknownPartCard);
+```
+
+An unknown kind falls back rather than throwing: a transcript outlives the build
+that wrote it, and a message naming a part this build dropped must still be
+readable. Set a fallback — rendering nothing makes a message look like it said
+less than it did.
+
+One part shape ships: `{ kind: 'text', content }`. A transcript has to know what
+a message *says* to preview it or fall back to it.
+
+### The avatar is a slot
+
+`renderAvatar` is told what the assistant is doing (`idle | thinking |
+answering`). Omit it and the transcript is text, which reads perfectly well.
+
+### The composer
+
+Fully controlled — it holds no draft. `/` and `@` menus are driven through a
+`ComposerCommands` binding carrying only what the menu needs; the source's
+carried twenty-odd members, most of them one app's composer features. Those go
+above the input through `renderAbove` instead.
+
+The command path is consulted **before** the send gate, deliberately: a command
+like "stop" has to work at exactly the moment an ordinary send is refused.
