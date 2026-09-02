@@ -9,6 +9,8 @@ source projects, chosen per layer by which implementation was already the strong
 
 | Layer | Extracted from |
 |---|---|
+| Shared CI gates + managed-block installer | loregarden `.lefthook/scripts/`, `scripts/install-workspace-hooks.sh` |
+| Shared lint policy, reusable CI workflows, `hooks:*` Taskfile | loregarden + the drifted copies in loremaker, blobert, corpocoin, bridgepath |
 | MCP transport + external-server registry | loregarden `server/loregarden/mcp/`, `services/mcp_registry.py` |
 | Stage state machine, workflow loader, gate runner | loregarden `server/loregarden/core/`, `services/gate_runner.py` |
 | Design tokens + theming (dark/light) | loremaker `client/src/liquid-glass/tokens.ts`, `theme/` |
@@ -35,7 +37,20 @@ while this is built:
    consuming repo. No publishing until the interfaces have stabilized against both consumers.
 4. **Every cut-over runs the consuming project's own gates**, not just lore-eden's.
 
+## Note on the gate library
+
+The shared gates are the one part of this that already exists and already works cross-repo:
+loregarden's `.lefthook/scripts/` gates detect repo layout rather than assuming it, and are
+installed into other repos as a marker-delimited managed block. blobert and this repo both
+carry that block today.
+
+What they lack is a home. Both installed blocks reference loregarden by absolute filesystem
+path with no versioning, and the two projects that predate the installer (loremaker, blobert)
+still run stale vendored forks of the same files. Giving those gates a versioned package is
+the first ticket for a reason.
+
 ## Layout
 
     python/    agent harness (FastAPI/Pydantic v2, Python 3.11)
     ts/        UI kit (React 19 + TypeScript)
+    gates/     shared CI gates, hooks installer, lint policy, reusable workflows
