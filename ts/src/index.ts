@@ -12,4 +12,5 @@ export * from './panes';
 export * from './surfaces';
 export * from './chat';
 export * from './flex';
+export * from './style';
 export { OverflowMenu, OverflowMenuItem, OverflowMenuSection } from './components/OverflowMenu';
