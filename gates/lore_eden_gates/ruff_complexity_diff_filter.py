@@ -26,9 +26,11 @@ if str(_LEFTHOOK_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_LEFTHOOK_SCRIPTS))
 
 from precommit_git_diff import (
+    UnexaminableError,
     git_diff_cached,
     git_repo_root,
     parse_staged_additions,
+    require_tool_ran,
     scrubbed_git_env,
 )
 
@@ -86,10 +88,16 @@ def _run_ruff_c901(paths: list[str], *, config: Path | None) -> list[dict]:
         cmd.extend(["--config", str(config)])
     cmd.extend(paths)
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    require_tool_ran("ruff", proc)
     try:
         data = json.loads(proc.stdout or "[]")
-    except json.JSONDecodeError:
-        return []
+    except json.JSONDecodeError as exc:
+        # Unparseable output is not "no findings". Ruff printing something this
+        # cannot read means the check did not deliver a verdict, and treating
+        # that as clean is a pass over unread code.
+        raise UnexaminableError(
+            f"ruff produced output this filter could not read: {exc}"
+        ) from exc
     return data if isinstance(data, list) else []  # py-org: allow-isinstance (ruff JSON, no Pydantic here)
 
 
@@ -225,5 +233,20 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def _cli(argv: list[str]) -> int:
+    """Turn an unexaminable run into the same loud exit every other gate uses.
+
+    Without this the guard raised a traceback, which is loud but reads as the
+    gate itself being broken rather than as the tool being absent — and a
+    traceback in a pre-commit hook is the thing people reach for `--no-verify`
+    over.
+    """
+    try:
+        return main(argv)
+    except UnexaminableError as exc:
+        print(f"pre-commit: Ruff C901 — nothing was checked: {exc}")
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(_cli(sys.argv))

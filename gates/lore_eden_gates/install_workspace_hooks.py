@@ -95,6 +95,30 @@ MANAGED_GATES: Tuple[ManagedGate, ...] = (
         "ts_organization_check.cjs",
         TS_GLOB,
     ),
+    # The two diff filters. They were written, tested by nothing and installed
+    # nowhere — 423 lines the README described as "supporting, not installed as
+    # hooks", which is a decision nobody had actually made. They enforce the
+    # same don't-make-it-worse policy the organization gate does, so a repo
+    # that wants that policy for file size and duplication wants it for
+    # complexity too.
+    #
+    # Each needs its tool on the machine. Absent, they now refuse rather than
+    # reporting no growth — which is what they did before, on every commit,
+    # indefinitely.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-py-complexity",
+        "Python complexity growth (Ruff C901, diff-scoped)",
+        "python3",
+        "ruff_complexity_diff_filter.py",
+        PY_GLOB,
+    ),
+    ManagedGate(
+        f"{COMMAND_PREFIX}-py-statements",
+        "Python statement growth (Pylint, diff-scoped)",
+        "python3",
+        "pylint_diff_filter.py",
+        PY_GLOB,
+    ),
 )
 
 MANAGED_COMMAND_NAMES = tuple(gate.name for gate in MANAGED_GATES)

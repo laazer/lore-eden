@@ -92,6 +92,31 @@ class UnexaminableFileError(UnexaminableError):
     """
 
 
+def require_tool_ran(tool: str, proc: "subprocess.CompletedProcess[str]") -> None:
+    """Refuse to read a verdict out of a tool that never ran.
+
+    ``python -m ruff`` with ruff uninstalled exits non-zero with nothing on
+    stdout, and ``json.loads(stdout or "[]")`` turns that into an empty finding
+    list — which every caller reads as "clean". So a machine missing the tool
+    reported a pass, on every commit, indefinitely.
+
+    That is the same shape as a gate whose scope never resolved, so it raises
+    the same type and every gate turns it into the same loud exit.
+    """
+    if proc.returncode == 0:
+        return
+    if proc.stdout.strip():
+        # A non-zero exit with findings on stdout is the *normal* case for a
+        # linter: it found something. Only silence is suspicious.
+        return
+    detail = proc.stderr.strip().splitlines()
+    hint = detail[-1] if detail else f"exit {proc.returncode} with no output"
+    raise UnexaminableError(
+        f"{tool} did not run: {hint}. "
+        f"Install it, or remove the {tool} gate from this repo's hooks."
+    )
+
+
 #: git's C-quoting escapes, as `quote_c_style` writes them.
 _C_ESCAPES = {"a": 7, "b": 8, "f": 12, "n": 10, "r": 13, "t": 9, "v": 11, "\\": 92, '"': 34}
 _OCTAL_DIGITS = "01234567"

@@ -40,6 +40,12 @@ jobs:
         working-directory: gates
         run: npm ci
 
+      # The two diff filters drive these. Absent, they refuse rather than
+      # reporting no growth — correct, but it makes the job useless, so CI
+      # installs them rather than exercising the refusal path forever.
+      - name: Install the linters the diff filters drive
+        run: python -m pip install --upgrade pip ruff pylint
+
       - name: Install test dependencies
         run: python -m pip install --upgrade pip pytest
 
@@ -106,6 +112,12 @@ jobs:
       - name: Install the TypeScript gate's parser
         working-directory: gates
         run: npm ci
+
+      # The two diff filters drive these. Absent, they refuse rather than
+      # reporting no growth — correct, but it makes the job useless, so CI
+      # installs them rather than exercising the refusal path forever.
+      - name: Install the linters the diff filters drive
+        run: python -m pip install --upgrade pip ruff pylint
 
       # Positive control, and it runs FIRST. Every gate below can legitimately
       # examine zero files — a docs-only PR gives the TypeScript gate nothing —
@@ -190,6 +202,74 @@ jobs:
           done
           echo "--- ts_organization_check.cjs"
           node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope branch --base "$base"
+
+      # Positive control for the two diff filters, and it runs before them for
+      # the same reason the silent-except control does: they are diff-scoped, so
+      # a PR touching no python gives them nothing to grade and the step below
+      # exits 0 having run neither filter. That is what happened on the very PR
+      # that added them.
+      - name: Positive control — a complexity increase must fail the filter
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)/repo"
+          mkdir -p "$control"
+          git -C "$control" init -q -b main
+          # A baseline the filter compares against: one branch, trivially simple.
+          cat > "$control/grew.py" <<'PY'
+          def classify(n):
+              return "big" if n > 10 else "small"
+          PY
+          git -C "$control" add -A
+          git -C "$control" commit -qm baseline
+          # The same function, now over the C901 threshold. Only the *growth*
+          # should fail it — a pre-existing complex function must not.
+          cat > "$control/grew.py" <<'PY'
+          def classify(n):
+              if n == 1: return "a"
+              elif n == 2: return "b"
+              elif n == 3: return "c"
+              elif n == 4: return "d"
+              elif n == 5: return "e"
+              elif n == 6: return "f"
+              elif n == 7: return "g"
+              elif n == 8: return "h"
+              elif n == 9: return "i"
+              elif n == 10: return "j"
+              elif n == 11: return "k"
+              elif n == 12: return "l"
+              return "z"
+          PY
+          git -C "$control" add -A
+          if (cd "$control" && python3 "$GITHUB_WORKSPACE/gates/lore_eden_gates/ruff_complexity_diff_filter.py" grew.py); then
+            echo "::error::the complexity filter passed a function whose complexity grew; it is not working"
+            exit 1
+          fi
+          echo "control failed as required"
+
+      # Separate step: the diff filters take positional, project-relative paths
+      # rather than --repo/--scope, so they cannot join the loop above. The
+      # asymmetry is theirs; a test asserts both are named here so neither can
+      # be added to MANAGED_GATES and forgotten in CI again.
+      - name: Run the diff filters against this repo's python
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only --diff-filter=ACM HEAD~1 -- 'python/**/*.py' || true)"
+          if [ -z "$changed" ]; then
+            echo "no python changed; the filters are diff-scoped and would grade nothing"
+            exit 0
+          fi
+          rel="$(echo "$changed" | sed 's|^python/||')"
+          echo "$rel"
+          cd python
+          # shellcheck disable=SC2086
+          python3 ../gates/lore_eden_gates/ruff_complexity_diff_filter.py --repo-prefix python $rel
+          # shellcheck disable=SC2086
+          python3 ../gates/lore_eden_gates/pylint_diff_filter.py --repo-prefix python $rel
 
       - name: Managed hook block is current
         run: gates/scripts/install-workspace-hooks.sh --check "$PWD"

@@ -58,10 +58,19 @@ class Repo:
     def stage(self, *relpaths: str) -> None:
         run_git(["add", *relpaths], self.root)
 
-    def gate(self, script: str, *args: str) -> subprocess.CompletedProcess:
-        """Run a gate as a subprocess, the way lefthook and orchestration do."""
+    def gate(
+        self, script: str, *args: str, env_overlay: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess:
+        """Run a gate as a subprocess, the way lefthook and orchestration do.
+
+        ``env_overlay`` is applied *after* the scrub, so a test can inject a
+        hostile ``GIT_DIR`` on purpose — which is the one thing this harness
+        otherwise makes impossible, and the thing the shared diff module exists
+        to survive.
+        """
         runner = ["node"] if script.endswith(".cjs") else [sys.executable]
         env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        env.update(env_overlay or {})
         return subprocess.run(
             [*runner, str(GATES_DIR / script), *args],
             cwd=self.root,
