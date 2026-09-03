@@ -57,6 +57,37 @@ protocol handler itself imports neither web framework — `lore_eden.mcp` defers
 each transport's import to first use — so a Django host installs
 `lore-eden[django]` and never pulls FastAPI into a request path.
 
+An append-only ledger holds whatever a host records, and replays it through a
+reducer the host supplies:
+
+```python
+from lore_eden.ledger import EntityType, EventType, Ledger
+from lore_eden.store import InMemoryLedgerStore
+
+ledger = Ledger(InMemoryLedgerStore())
+ledger.append(
+    event_type=EventType("recorded"),
+    entity_id="cl-1",
+    entity_type=EntityType("cost_line"),
+    payload={"amount_cents": 1250},
+)
+
+total = ledger.replay(
+    "cl-1", EntityType("cost_line"),
+    lambda state, event: state + event.payload["amount_cents"], 0,
+    cache_as="total",
+)
+```
+
+There is no update and no delete on the store protocol — the surface *is* the
+immutability guarantee — and each event's checksum chains to its predecessor's,
+so an edited payload is detectable even if its own checksum is recomputed.
+`verify_chain` says where the chain broke.
+
+Derived reads are cached through `lore_eden.cache`, where a value cannot be
+stored without declaring what it derives from. Writes invalidate by tag, so a
+write path never has to know which cached reads exist.
+
 A workflow is stages, transitions, and the shell commands that gate them:
 
 ```python

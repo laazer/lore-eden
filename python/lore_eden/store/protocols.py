@@ -35,6 +35,7 @@ from lore_eden.store.records import (
     WorkItemState,
     WorkItemType,
 )
+from lore_eden.ledger import EntityType, LedgerEvent
 from lore_eden.workflow.approvals import Approval
 
 
@@ -238,3 +239,42 @@ class RelationStore(Protocol):
     def relations_for(
         self, item_ids: Sequence[str]
     ) -> Mapping[str, Sequence[RelationRecord]]: ...
+
+
+class LedgerStore(Protocol):
+    """Where recorded events go, and the reason there is no way back out.
+
+    Four methods, and the absence is the design: no update, no delete, nothing
+    that takes an event already stored. An implementation cannot forget to
+    enforce immutability because the surface never offers it — which is a
+    stronger guarantee than asking each host to remember, and the one
+    :class:`lore_eden.ledger.Ledger` relies on.
+
+    :meth:`last_event` is expected to serialize concurrent appends where the
+    backend can (a row lock), and to fall back to the uniqueness constraint plus
+    a retry where it cannot. SQLite is the second case.
+    """
+
+    def last_event(self, entity_id: str, entity_type: EntityType) -> "LedgerEvent | None":
+        """The highest-numbered event for one entity, or None for a fresh stream."""
+        ...
+
+    def append_event(self, event: "LedgerEvent") -> "LedgerEvent":
+        """Store one event.
+
+        Raises :class:`lore_eden.ledger.LedgerSequenceConflict` when its
+        sequence number is already taken, rather than overwriting or renumbering
+        — the caller has to re-read and chain to what actually landed.
+        """
+        ...
+
+    def events_for(self, entity_id: str, entity_type: EntityType) -> Sequence["LedgerEvent"]:
+        """One entity's events, ordered by sequence number.
+
+        The order is the contract: replay folds them in this order, so a store
+        that returned insertion order would make replay depend on how the rows
+        happened to be written.
+        """
+        ...
+
+    def event_by_idempotency_key(self, idempotency_key: str) -> "LedgerEvent | None": ...

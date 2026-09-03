@@ -19,6 +19,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Mapping, Sequence
 
+from lore_eden.ledger import EntityType, LedgerEvent, LedgerSequenceConflict
 from lore_eden.store.records import (
     CursorRecord,
     CycleRecord,
@@ -298,3 +299,56 @@ class InMemoryRelationStore:
                     RelationRecord(item_id, related_id, RelationKind(kind))
                 )
         return found
+
+
+class InMemoryLedgerStore:
+    """Events in a list, with the same refusals the SQL store makes.
+
+    A test double that accepted what the real store rejects would let a bug
+    through the suite and stop it in production, so the uniqueness checks are
+    real here too.
+    """
+
+    def __init__(self) -> None:
+        self._events: list[LedgerEvent] = []
+
+    def last_event(self, entity_id: str, entity_type: EntityType) -> LedgerEvent | None:
+        stream = [
+            event
+            for event in self._events
+            if event.entity_id == entity_id and event.entity_type == entity_type
+        ]
+        if not stream:
+            return None
+        return max(stream, key=lambda event: event.sequence_number)
+
+    def append_event(self, event: LedgerEvent) -> LedgerEvent:
+        taken = any(
+            stored.entity_id == event.entity_id
+            and stored.entity_type == event.entity_type
+            and stored.sequence_number == event.sequence_number
+            for stored in self._events
+        )
+        if taken:
+            raise LedgerSequenceConflict(
+                f"sequence {event.sequence_number} is already recorded for "
+                f"{event.entity_type} '{event.entity_id}'"
+            )
+        self._events.append(event)
+        return event
+
+    def events_for(self, entity_id: str, entity_type: EntityType) -> Sequence[LedgerEvent]:
+        stream = [
+            event
+            for event in self._events
+            if event.entity_id == entity_id and event.entity_type == entity_type
+        ]
+        return sorted(stream, key=lambda event: event.sequence_number)
+
+    def event_by_idempotency_key(self, idempotency_key: str) -> LedgerEvent | None:
+        if not idempotency_key:
+            return None
+        for event in self._events:
+            if event.idempotency_key == idempotency_key:
+                return event
+        return None
