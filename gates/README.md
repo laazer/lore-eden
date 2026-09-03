@@ -41,13 +41,20 @@ report a file clean.
 | `py_defensive_normalization_check.py` | `str(x).strip().lower()` in a comparison — re-normalizing a value that should be constrained at its source |
 | `ts_organization_check.cjs` | File size caps, no `fetch`/`axios` in `.tsx`, duplicate bodies, cross-codebase DRY, barrel size, inline `instanceof Error` ternaries |
 
+| `ruff_complexity_diff_filter.py` | C901 complexity, but only where a touched function's complexity **grew** |
+| `pylint_diff_filter.py` | `too-many-statements`, same don't-make-it-worse policy |
+
+The last two need `ruff` and `pylint` on the machine. Absent, they **refuse and
+exit non-zero** — they used to print "no growth on touched lines" and exit 0,
+which meant a machine missing the tool reported a pass on every commit
+indefinitely.
+
 Supporting, not installed as hooks:
 
 | Script | Purpose |
 |---|---|
 | `precommit_git_diff.py` | The shared diff/scope harness every Python gate imports. Scrubs `GIT_DIR`/`GIT_WORK_TREE`, decodes `core.quotePath` escapes, resolves scopes, and refuses to call an unresolved scope a pass |
 | `select_pytest_targets.py` | Import-graph test selection for pre-push, biased hard toward over-running |
-| `ruff_complexity_diff_filter.py`, `pylint_diff_filter.py` | Diff-scope C901 and `too-many-statements` to functions this change actually grew |
 
 ## Scopes
 
