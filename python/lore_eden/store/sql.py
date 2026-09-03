@@ -25,16 +25,61 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, select
 
-from lore_eden.store.records import CursorRecord, RunRecord, RunStatus, utcnow
+from lore_eden.store.records import (
+    CursorRecord,
+    CycleRecord,
+    RelationKind,
+    RelationRecord,
+    RunRecord,
+    RunStatus,
+    WorkItemRecord,
+    WorkItemState,
+    WorkItemType,
+    utcnow,
+)
 
 
 _FK_LISTENER_REGISTERED = False
+
+
+#: The driver module a stdlib SQLite connection comes from. Compared by name
+#: rather than with ``isinstance`` because the object belongs to a driver, not
+#: to us, and because importing `sqlite3` to type-check a Postgres connection
+#: would be absurd.
+SQLITE_DRIVER_MODULE = "sqlite3"
+
+
+def pragma_foreign_keys_if_sqlite(dbapi_connection: object) -> bool:
+    """Turn on FK enforcement, but only on a connection that understands it.
+
+    Returns whether the PRAGMA was issued, so a test can tell "skipped" from
+    "ran" without reading the database.
+
+    ## Why the guard exists
+
+    The listener this backs is registered on the ``Engine`` *class*, which is
+    what makes it reach every engine a host builds rather than only the ones it
+    remembered to decorate. That breadth is the point — and it means a host with
+    a Postgres engine got ``PRAGMA foreign_keys=ON`` sent to Postgres, which
+    answers ``syntax error at or near "PRAGMA"`` and takes down every connection
+    it makes.
+
+    Found by running the store's conformance suite against a real Postgres for
+    the first time. Nothing in a SQLite-only test run could have shown it, which
+    is the whole argument for testing the second database.
+    """
+    if type(dbapi_connection).__module__.split(".")[0] != SQLITE_DRIVER_MODULE:
+        return False
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+    return True
 
 
 def enforce_sqlite_foreign_keys() -> None:
@@ -42,7 +87,8 @@ def enforce_sqlite_foreign_keys() -> None:
 
     Idempotent, so a host that also registers it does not end up with two
     listeners firing the same PRAGMA on every connect. Call it once, at import
-    of the host's database module.
+    of the host's database module. Engines of any other dialect are left alone —
+    see :func:`pragma_foreign_keys_if_sqlite`.
     """
     global _FK_LISTENER_REGISTERED
     if _FK_LISTENER_REGISTERED:
@@ -50,9 +96,7 @@ def enforce_sqlite_foreign_keys() -> None:
 
     @event.listens_for(Engine, "connect")
     def _pragma(dbapi_connection, connection_record) -> None:  # noqa: ANN001
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+        pragma_foreign_keys_if_sqlite(dbapi_connection)
 
     _FK_LISTENER_REGISTERED = True
 
@@ -291,3 +335,341 @@ def make_async_session_factory(engine):
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+# ---------------------------------------------------------------------------
+# The work-item engine's tables.
+#
+# Everything below goes through SQLModel's expression API rather than text SQL,
+# which is what makes it portable: the same store runs on SQLite for a host that
+# wants no server and on Postgres for one that has one, and CI proves both
+# rather than assuming. The one dialect-specific thing in this module is the
+# SQLite foreign-key PRAGMA above, which Postgres does not need because it never
+# had the problem.
+# ---------------------------------------------------------------------------
+
+
+class WorkItemRow(SQLModel, table=True):
+    __tablename__ = "lore_eden_work_items"
+
+    id: str = Field(primary_key=True)
+    # Indexed: a host addresses items by the id its people type, not the UUID.
+    external_id: str = Field(index=True)
+    title: str = ""
+    item_type: str = WorkItemType.TASK.value
+    # Not indexed together with parent_id as a composite: the two are filtered
+    # independently far more often than jointly, and a composite would serve
+    # neither.
+    state: str = Field(default="", index=True)
+    parent_id: str = Field(default="", index=True)
+    cycle_id: str = Field(default="", index=True)
+    priority: int = 3
+    description: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class CycleRow(SQLModel, table=True):
+    __tablename__ = "lore_eden_cycles"
+
+    id: str = Field(primary_key=True)
+    name: str = ""
+    state: str = Field(default="", index=True)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+class DependencyRow(SQLModel, table=True):
+    """One edge. Composite primary key, so re-adding one cannot duplicate it."""
+
+    __tablename__ = "lore_eden_work_item_dependencies"
+
+    item_id: str = Field(primary_key=True)
+    # Indexed as well as keyed: the primary key serves "what does this wait
+    # for", and the reverse question — "what waits on this" — is asked by every
+    # attempt to close or reorder an item.
+    depends_on_id: str = Field(primary_key=True, index=True)
+
+
+class TagRow(SQLModel, table=True):
+    __tablename__ = "lore_eden_work_item_tags"
+
+    item_id: str = Field(primary_key=True)
+    tag: str = Field(primary_key=True)
+    # Tags are returned in the order the caller supplied, so the order has to be
+    # stored. A set would come back alphabetised, silently reordering a host's
+    # own display.
+    position: int = 0
+
+
+class RelationRow(SQLModel, table=True):
+    __tablename__ = "lore_eden_work_item_relations"
+
+    item_id: str = Field(primary_key=True)
+    related_id: str = Field(primary_key=True)
+    kind: str = Field(primary_key=True, default=RelationKind.RELATES_TO.value)
+
+
+def _to_item(row: WorkItemRow) -> WorkItemRecord:
+    return WorkItemRecord(
+        id=row.id,
+        external_id=row.external_id,
+        title=row.title,
+        item_type=WorkItemType(row.item_type),
+        state=row.state,
+        parent_id=row.parent_id,
+        cycle_id=row.cycle_id,
+        priority=row.priority,
+        description=row.description,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _apply_item(row: WorkItemRow, record: WorkItemRecord) -> WorkItemRow:
+    row.external_id = record.external_id
+    row.title = record.title
+    row.item_type = record.item_type.value
+    row.state = record.state
+    row.parent_id = record.parent_id
+    row.cycle_id = record.cycle_id
+    row.priority = record.priority
+    row.description = record.description
+    row.created_at = record.created_at
+    row.updated_at = record.updated_at
+    return row
+
+
+class SqlWorkItemStore:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_item(self, item_id: str) -> WorkItemRecord | None:
+        row = self.session.get(WorkItemRow, item_id)
+        return _to_item(row) if row is not None else None
+
+    def get_items(self, item_ids: Sequence[str]) -> Mapping[str, WorkItemRecord]:
+        if not item_ids:
+            return {}
+        rows = self.session.exec(
+            select(WorkItemRow).where(WorkItemRow.id.in_(list(item_ids)))
+        ).all()
+        return {row.id: _to_item(row) for row in rows}
+
+    def save_item(self, record: WorkItemRecord) -> WorkItemRecord:
+        row = self.session.get(WorkItemRow, record.id) or WorkItemRow(id=record.id)
+        self.session.add(_apply_item(row, record))
+        self.session.commit()
+        self.session.refresh(row)
+        return _to_item(row)
+
+    def delete_item(self, item_id: str) -> bool:
+        row = self.session.get(WorkItemRow, item_id)
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.commit()
+        return True
+
+    def children_of(self, parent_ids: Sequence[str]) -> Mapping[str, Sequence[WorkItemRecord]]:
+        found: dict[str, list[WorkItemRecord]] = {parent: [] for parent in parent_ids}
+        if not parent_ids:
+            return found
+        # One query for every parent asked about. The loop that would have been
+        # here instead is the N+1 a board of two hundred cards cannot afford.
+        rows = self.session.exec(
+            select(WorkItemRow).where(WorkItemRow.parent_id.in_(list(parent_ids)))
+        ).all()
+        for row in rows:
+            found[row.parent_id].append(_to_item(row))
+        return found
+
+    def list_items(
+        self,
+        *,
+        item_type: WorkItemType | None = None,
+        state: WorkItemState = WorkItemState(""),
+        cycle_id: str = "",
+        parent_id: str = "",
+        limit: int = 100,
+    ) -> Sequence[WorkItemRecord]:
+        statement = select(WorkItemRow)
+        if item_type is not None:
+            statement = statement.where(WorkItemRow.item_type == item_type.value)
+        if state:
+            statement = statement.where(WorkItemRow.state == state)
+        if cycle_id:
+            statement = statement.where(WorkItemRow.cycle_id == cycle_id)
+        if parent_id:
+            statement = statement.where(WorkItemRow.parent_id == parent_id)
+        statement = statement.order_by(
+            WorkItemRow.priority, WorkItemRow.created_at, WorkItemRow.id
+        ).limit(limit)
+        return [_to_item(row) for row in self.session.exec(statement).all()]
+
+
+class SqlDependencyStore:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add_dependency(self, item_id: str, depends_on_id: str) -> bool:
+        existing = self.session.get(DependencyRow, (item_id, depends_on_id))
+        if existing is not None:
+            return False
+        self.session.add(DependencyRow(item_id=item_id, depends_on_id=depends_on_id))
+        self.session.commit()
+        return True
+
+    def remove_dependency(self, item_id: str, depends_on_id: str) -> bool:
+        row = self.session.get(DependencyRow, (item_id, depends_on_id))
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.commit()
+        return True
+
+    def prerequisites_map(self, item_ids: Sequence[str]) -> Mapping[str, frozenset[str]]:
+        found: dict[str, set[str]] = {item_id: set() for item_id in item_ids}
+        if not item_ids:
+            return {}
+        rows = self.session.exec(
+            select(DependencyRow).where(DependencyRow.item_id.in_(list(item_ids)))
+        ).all()
+        for row in rows:
+            found[row.item_id].add(row.depends_on_id)
+        return {item_id: frozenset(edges) for item_id, edges in found.items()}
+
+    def dependents_map(self, item_ids: Sequence[str]) -> Mapping[str, frozenset[str]]:
+        found: dict[str, set[str]] = {item_id: set() for item_id in item_ids}
+        if not item_ids:
+            return {}
+        rows = self.session.exec(
+            select(DependencyRow).where(DependencyRow.depends_on_id.in_(list(item_ids)))
+        ).all()
+        for row in rows:
+            found[row.depends_on_id].add(row.item_id)
+        return {item_id: frozenset(edges) for item_id, edges in found.items()}
+
+
+class SqlCycleStore:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def get_cycle(self, cycle_id: str) -> CycleRecord | None:
+        row = self.session.get(CycleRow, cycle_id)
+        if row is None:
+            return None
+        return CycleRecord(
+            id=row.id,
+            name=row.name,
+            state=row.state,
+            starts_at=row.starts_at,
+            ends_at=row.ends_at,
+        )
+
+    def save_cycle(self, record: CycleRecord) -> CycleRecord:
+        row = self.session.get(CycleRow, record.id) or CycleRow(id=record.id)
+        row.name = record.name
+        row.state = record.state
+        row.starts_at = record.starts_at
+        row.ends_at = record.ends_at
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return replace(record)
+
+    def list_cycles(
+        self, *, state: WorkItemState = WorkItemState("")
+    ) -> Sequence[CycleRecord]:
+        statement = select(CycleRow)
+        if state:
+            statement = statement.where(CycleRow.state == state)
+        return [
+            CycleRecord(
+                id=row.id,
+                name=row.name,
+                state=row.state,
+                starts_at=row.starts_at,
+                ends_at=row.ends_at,
+            )
+            for row in self.session.exec(statement).all()
+        ]
+
+
+class SqlTagStore:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def tags_for(self, item_ids: Sequence[str]) -> Mapping[str, tuple[str, ...]]:
+        found: dict[str, list[tuple[int, str]]] = {item_id: [] for item_id in item_ids}
+        if not item_ids:
+            return {}
+        rows = self.session.exec(
+            select(TagRow).where(TagRow.item_id.in_(list(item_ids)))
+        ).all()
+        for row in rows:
+            found[row.item_id].append((row.position, row.tag))
+        return {
+            item_id: tuple(tag for _, tag in sorted(pairs))
+            for item_id, pairs in found.items()
+        }
+
+    def set_tags(self, item_id: str, tags: Sequence[str]) -> tuple[str, ...]:
+        for row in self.session.exec(
+            select(TagRow).where(TagRow.item_id == item_id)
+        ).all():
+            self.session.delete(row)
+        ordered: list[str] = []
+        for tag in tags:
+            if tag not in ordered:
+                ordered.append(tag)
+        for position, tag in enumerate(ordered):
+            self.session.add(TagRow(item_id=item_id, tag=tag, position=position))
+        self.session.commit()
+        return tuple(ordered)
+
+
+class SqlRelationStore:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def _key(self, record: RelationRecord) -> tuple[str, str, str]:
+        return (record.item_id, record.related_id, record.kind.value)
+
+    def add_relation(self, record: RelationRecord) -> bool:
+        if self.session.get(RelationRow, self._key(record)) is not None:
+            return False
+        self.session.add(
+            RelationRow(
+                item_id=record.item_id,
+                related_id=record.related_id,
+                kind=record.kind.value,
+            )
+        )
+        self.session.commit()
+        return True
+
+    def remove_relation(self, record: RelationRecord) -> bool:
+        row = self.session.get(RelationRow, self._key(record))
+        if row is None:
+            return False
+        self.session.delete(row)
+        self.session.commit()
+        return True
+
+    def relations_for(
+        self, item_ids: Sequence[str]
+    ) -> Mapping[str, Sequence[RelationRecord]]:
+        found: dict[str, list[RelationRecord]] = {item_id: [] for item_id in item_ids}
+        if not item_ids:
+            return {}
+        rows = self.session.exec(
+            select(RelationRow)
+            .where(RelationRow.item_id.in_(list(item_ids)))
+            .order_by(RelationRow.related_id, RelationRow.kind)
+        ).all()
+        for row in rows:
+            found[row.item_id].append(
+                RelationRecord(row.item_id, row.related_id, RelationKind(row.kind))
+            )
+        return found

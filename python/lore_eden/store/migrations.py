@@ -87,11 +87,40 @@ def _0003_runs_carry_an_attempt(session: Session) -> None:
     session.commit()
 
 
+def _0004_create_work_item_tables(session: Session) -> None:
+    """The work-item engine's five tables.
+
+    Guarded the same way 0001 is, and for the same reason: a fresh install gets
+    these from ``create_all``, so this exists to bring an older database to the
+    same place and to claim the id. ``create_all`` is itself the guard — it
+    creates only what is missing, which is what makes re-running safe.
+    """
+    from lore_eden.store.sql import (  # noqa: F401
+        CycleRow,
+        DependencyRow,
+        RelationRow,
+        TagRow,
+        WorkItemRow,
+    )
+
+    WorkItemRow.metadata.create_all(
+        session.get_bind(),
+        tables=[
+            WorkItemRow.__table__,
+            CycleRow.__table__,
+            DependencyRow.__table__,
+            TagRow.__table__,
+            RelationRow.__table__,
+        ],
+    )
+
+
 #: In order. Append; never edit an entry that has shipped.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration("0001", "Create the cursor and run tables", _0001_create_cursors_and_runs),
     Migration("0002", "Index run heartbeats for the stale sweep", _0002_index_run_heartbeat),
     Migration("0003", "Runs carry an attempt number", _0003_runs_carry_an_attempt),
+    Migration("0004", "Create the work-item tables", _0004_create_work_item_tables),
 )
 
 

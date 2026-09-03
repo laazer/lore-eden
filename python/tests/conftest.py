@@ -10,24 +10,20 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import event
-from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
+
+from lore_eden.store.sql import enforce_sqlite_foreign_keys
 
 # Imported for its side effect: registering the table on SQLModel.metadata.
 from lore_eden.mcp.servers.models import McpServerRecord  # noqa: F401
 
 
-@event.listens_for(Engine, "connect")
-def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record) -> None:
-    """SQLite ignores foreign keys unless asked, per connection.
-
-    Registered on the Engine class so every engine a test builds gets it, rather
-    than each test remembering to.
-    """
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+# SQLite ignores foreign keys unless asked, per connection. The library's own
+# registration is used rather than a copy here: this file had one, it fired on
+# every engine of every dialect, and the Postgres conformance pass died on
+# `syntax error at or near "PRAGMA"` in the test harness as well as in the
+# library. Two copies of a rule is two places for it to be wrong.
+enforce_sqlite_foreign_keys()
 
 
 @pytest.fixture

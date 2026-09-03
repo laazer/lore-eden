@@ -346,3 +346,46 @@ class TestProtocolLayerIsDatabaseFree:
             [sys.executable, "-c", script], capture_output=True, text=True, check=True
         )
         assert result.stdout.strip() == "True"
+
+
+class TestTheForeignKeyPragmaOnlyReachesSqlite:
+    """The listener is registered on the ``Engine`` class, so it sees every
+    engine a host builds — including the ones SQLite has nothing to do with.
+
+    Postgres answers ``PRAGMA foreign_keys=ON`` with ``syntax error at or near
+    "PRAGMA"``, which is not a warning: it kills the connection, and the listener
+    fires on *every* connect. Found by running the store conformance suite
+    against a real Postgres for the first time; no SQLite-only run could have
+    shown it.
+    """
+
+    class NotASqliteConnection:
+        """Whatever another driver hands back. It must not be asked to PRAGMA."""
+
+        def __init__(self) -> None:
+            self.cursors_opened = 0
+
+        def cursor(self):  # pragma: no cover - called only if the guard fails
+            self.cursors_opened += 1
+            raise AssertionError("a non-SQLite connection was sent a PRAGMA")
+
+    def test_another_driver_is_left_alone(self) -> None:
+        from lore_eden.store.sql import pragma_foreign_keys_if_sqlite
+
+        connection = self.NotASqliteConnection()
+
+        assert pragma_foreign_keys_if_sqlite(connection) is False
+        assert connection.cursors_opened == 0
+
+    def test_a_sqlite_connection_gets_it_and_it_takes_effect(self) -> None:
+        """The control, and it asserts the pragma's *value* rather than that a
+        statement was sent: a PRAGMA that silently did nothing looks identical
+        to one that worked."""
+        import sqlite3
+
+        from lore_eden.store.sql import pragma_foreign_keys_if_sqlite
+
+        connection = sqlite3.connect(":memory:")
+
+        assert pragma_foreign_keys_if_sqlite(connection) is True
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1

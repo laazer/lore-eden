@@ -62,6 +62,24 @@ jobs:
         # Same floor as the gates. The package is a library: a host on 3.10
         # must be able to install it.
         python: ["3.10", "3.12"]
+
+    # The store conformance suite runs against Postgres as well as SQLite. The
+    # SQL implementation was written against SQLite and loremaker runs Postgres,
+    # so "portable" was an assumption until something ran it on both.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: lore-eden
+          POSTGRES_DB: lore_eden_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +95,13 @@ jobs:
 
       - name: Run the test suite
         working-directory: python
+        env:
+          LORE_EDEN_TEST_POSTGRES_DSN: postgresql+psycopg://postgres:lore-eden@localhost:5432/lore_eden_test
+          # Without this the Postgres pass skips when the DSN is missing, and a
+          # portability claim proven by a skipped test is not proven. Set here
+          # so a broken service container fails the job instead of quietly
+          # halving what it covers.
+          LORE_EDEN_REQUIRE_POSTGRES: "1"
         run: python -m pytest -q
 
   # Consumes this repo's own reusable workflow. Dogfooding rather than
