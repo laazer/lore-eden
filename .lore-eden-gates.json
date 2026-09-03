@@ -1,4 +1,4 @@
 {
-  "git_subprocess_helper": "subprocess.run([\"git\", ...], env=scrubbed_git_env()) — scrubbed_git_env comes from lore_eden_gates.precommit_git_diff",
-  "git_subprocess_helper_path": "gates/lore_eden_gates/precommit_git_diff.py"
+  "git_subprocess_helper": "lore_eden.git.run_git",
+  "git_subprocess_helper_path": "python/lore_eden/git.py"
 }

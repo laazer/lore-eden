@@ -561,3 +561,40 @@ none of them asserts a class name.
   the commonest way a component library becomes unusable by keyboard.
 - **Everything forwards a ref**, including `Checkbox`, which keeps one of its own
   for the indeterminate write.
+
+## Long-lived sockets
+
+`chat/thinking.ts` defines a `ThinkingTransport` and ships nothing behind it,
+which is right — a websocket URL belongs to a host. But every host filling that
+seam needs reconnection with backoff and would write it, so `sockets/` offers
+one. The chat components do not import it; a host with its own transport never
+touches it.
+
+```tsx
+<ThinkingTransportContext.Provider
+  value={createWebSocketThinkingTransport({
+    url: (turnId) => `wss://host/turns/${turnId}/thinking`,
+  })}
+>
+```
+
+`ReconnectingSocket` owns only the lifecycle — opening, backing off, and the
+difference between a drop and a close we asked for. Framing and meaning stay
+with the caller, because those are the parts that actually differ between a
+queue feed and a chat turn, and folding them in would trade one duplication for
+a switch statement. `JsonSocket` is the no-subclass version.
+
+Three details worth keeping:
+
+- **Three states, not four.** An earlier client had an `error` that behaved
+  identically to `closed` for every consumer, and an `error` that never cleared
+  was how a dashboard got stuck.
+- **`closed`, not `connecting`, through the backoff.** A caller showing a
+  spinner through the wait shows nothing useful, and one that can fall back to
+  polling must be told to start now rather than after the retry also fails.
+- **A close we asked for is not reported as a drop.** Handlers are dropped
+  before `close()`, or the caller reconnects — or starts polling — on its way
+  out of the page.
+
+The backoff resets when a connection *opens*, not when data arrives: a socket
+nobody talks on would otherwise creep to the ceiling across quiet reconnects.

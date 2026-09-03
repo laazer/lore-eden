@@ -710,3 +710,38 @@ exception. A test asserts the two paths stay within 3× of each other.
 `TokenKind` is an enum rather than two string constants, because `kind` and
 `expect` are the parameters that decide whether a refresh token may act as an
 access token, and a typo there is a hole a type checker would have caught.
+
+## Shelling out to git
+
+`py_git_subprocess_check` refuses a bare `subprocess.run(["git", ...])` and
+tells the repo to route it through "the helper we already have". **lore-eden
+shipped that gate and no helper**, so the rule was inert in every adopting repo
+— including this one — until each wrote its own wrapper.
+
+```python
+from lore_eden.git import run_git, run_gh, scrubbed_env
+
+run_git(["log", "--oneline", "-1"], cwd=repo)
+```
+
+`GIT_DIR` **overrides `cwd`**, so `git -C /some/workspace status` run from
+inside a hook silently operates on the repo the hook fired for. Not
+hypothetical: loregarden's pre-push suite hit it — throwaway repos in `tmp_path`
+inherited a worktree's `GIT_DIR` and died on `git add .` with exit 128, an error
+naming neither the variable nor the repository it had been redirected to.
+
+`GIT_CONFIG_COUNT` and its numbered pairs are scrubbed for a subtler reason: one
+pair setting `core.attributesFile` can mark sources `-diff`, which empties a
+diff while `--name-only` still lists the file. A scrubbed child cannot be handed
+a config that makes its own output lie.
+
+**The parameters are named, not a `**kwargs` passthrough.** The source passed
+one and it reads as a harmless thin wrapper — but a bag documents nothing, hides
+a typo'd keyword as silence, and would let a caller pass its own `env=` straight
+through, defeating the entire purpose. A test asserts an unexpected keyword
+raises.
+
+The gate's var list is duplicated here, because the gates are stdlib-only and
+installed by filesystem path while this package is installed by pip — neither
+can import the other. A test asserts the two lists agree, so the duplication is
+guarded rather than merely regretted.
