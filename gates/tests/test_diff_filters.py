@@ -119,3 +119,21 @@ class TestTheyAreActuallyInstalled:
         # Pinned so a gate cannot be dropped from the installer without a test
         # saying so — which is how these two came to be unwired.
         assert len(MANAGED_COMMAND_NAMES) == 7
+
+    def test_ci_runs_every_managed_gate(self) -> None:
+        """CI's self-grade job must name every gate the installer installs.
+
+        The same drift, one layer up: adding these two to MANAGED_GATES left
+        CI's loop still listing five, so the repo would have installed gates it
+        never ran against itself. The loop is written out by hand because the
+        diff filters take positional paths rather than --repo/--scope and
+        cannot join it — so a check is the only thing keeping the two lists
+        honest.
+        """
+        from install_workspace_hooks import MANAGED_GATES
+
+        ci = (
+            Path(__file__).resolve().parent.parent.parent / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+        missing = [gate.script for gate in MANAGED_GATES if gate.script not in ci]
+        assert missing == [], f"managed gates CI never runs against this repo: {missing}"

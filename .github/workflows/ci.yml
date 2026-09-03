@@ -40,6 +40,12 @@ jobs:
         working-directory: gates
         run: npm ci
 
+      # The two diff filters drive these. Absent, they refuse rather than
+      # reporting no growth — correct, but it makes the job useless, so CI
+      # installs them rather than exercising the refusal path forever.
+      - name: Install the linters the diff filters drive
+        run: python -m pip install --upgrade pip ruff pylint
+
       - name: Install test dependencies
         run: python -m pip install --upgrade pip pytest
 
@@ -106,6 +112,12 @@ jobs:
       - name: Install the TypeScript gate's parser
         working-directory: gates
         run: npm ci
+
+      # The two diff filters drive these. Absent, they refuse rather than
+      # reporting no growth — correct, but it makes the job useless, so CI
+      # installs them rather than exercising the refusal path forever.
+      - name: Install the linters the diff filters drive
+        run: python -m pip install --upgrade pip ruff pylint
 
       # Positive control, and it runs FIRST. Every gate below can legitimately
       # examine zero files — a docs-only PR gives the TypeScript gate nothing —
@@ -190,6 +202,26 @@ jobs:
           done
           echo "--- ts_organization_check.cjs"
           node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope branch --base "$base"
+
+      # Separate step: the diff filters take positional, project-relative paths
+      # rather than --repo/--scope, so they cannot join the loop above. The
+      # asymmetry is theirs; a test asserts both are named here so neither can
+      # be added to MANAGED_GATES and forgotten in CI again.
+      - name: Run the diff filters against this repo's python
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only --diff-filter=ACM HEAD~1 -- 'python/**/*.py' || true)"
+          if [ -z "$changed" ]; then
+            echo "no python changed; the filters are diff-scoped and would grade nothing"
+            exit 0
+          fi
+          rel="$(echo "$changed" | sed 's|^python/||')"
+          echo "$rel"
+          cd python
+          # shellcheck disable=SC2086
+          python3 ../gates/lore_eden_gates/ruff_complexity_diff_filter.py --repo-prefix python $rel
+          # shellcheck disable=SC2086
+          python3 ../gates/lore_eden_gates/pylint_diff_filter.py --repo-prefix python $rel
 
       - name: Managed hook block is current
         run: gates/scripts/install-workspace-hooks.sh --check "$PWD"

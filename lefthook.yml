@@ -40,4 +40,14 @@ pre-commit:
       priority: 1
       glob: "{*.ts,*.tsx,**/*.ts,**/*.tsx}"
       run: node gates/lore_eden_gates/ts_organization_check.cjs {staged_files}
+    lore-eden-py-complexity:
+      name: Python complexity growth (Ruff C901, diff-scoped) (lore-eden)
+      priority: 1
+      glob: "{*.py,**/*.py}"
+      run: python3 gates/lore_eden_gates/ruff_complexity_diff_filter.py {staged_files}
+    lore-eden-py-statements:
+      name: Python statement growth (Pylint, diff-scoped) (lore-eden)
+      priority: 1
+      glob: "{*.py,**/*.py}"
+      run: python3 gates/lore_eden_gates/pylint_diff_filter.py {staged_files}
     # <<< lore-eden gate guardrails (managed) <<<
