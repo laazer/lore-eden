@@ -163,6 +163,14 @@ class TestTimeouts:
         assert outcome.timed_out is TimeoutKind.NONE
         assert outcome.ok is True
 
+    # Observed failing once, in a full-suite run that overlapped a Rust
+    # compile and took 123s against the usual 63s. Not reproduced since: 427/427
+    # on the next full run, 6/6 in isolation, 3/3 under eight-way CPU
+    # contention. So the cause is unproven, and "it passed on retry" is not a
+    # diagnosis. What is objectively true is that the margin was thin — the
+    # fake agent emitted every 0.05s against a 0.3s idle budget, six gaps — so
+    # the interval is now 0.02s. If this fails again, that margin is the first
+    # thing to widen further, and the emit interval is the quantity to change.
     def test_the_hard_cap_catches_a_run_that_never_goes_quiet(self):
         # Chatty forever would never trip the idle budget, which is exactly the
         # loop the second deadline exists for.
