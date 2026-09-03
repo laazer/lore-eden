@@ -202,6 +202,7 @@ class RateLimitMiddleware:
         enabled: bool = True,
         fail_open: bool = True,
         methods: Iterable[str] = WRITE_METHODS,
+        now: Callable[[], float] = time.time,
     ) -> None:
         self._app = app
         self._rules = list(rules)
@@ -209,6 +210,7 @@ class RateLimitMiddleware:
         self._enabled = enabled
         self._fail_open = fail_open
         self._methods = frozenset(methods)
+        self._now = now
 
     def rule_for(self, path: str) -> RateLimitRule | None:
         """The first matching rule, in the order given — so a specific path can
@@ -237,7 +239,13 @@ class RateLimitMiddleware:
         await self._app(scope, receive, send)
 
     async def _over_limit(self, rule: RateLimitRule, scope: dict) -> bool:
-        window = int(time.time()) // rule.window_seconds
+        # Fixed window, and the window number is part of the counter key — so
+        # the count resets when the clock crosses a boundary. That is the
+        # limiter working as designed; it is also why the clock is injected.
+        # A test that spans a boundary sees its counter reset under it and the
+        # request it expected to be refused is allowed, which reads as a flake
+        # and is really a test with a real clock in it.
+        window = int(self._now()) // rule.window_seconds
         key = f"ratelimit:{rule.prefix}:{self._client(scope)}:{window}"
         try:
             return await self._count(key, rule.window_seconds) > rule.limit
