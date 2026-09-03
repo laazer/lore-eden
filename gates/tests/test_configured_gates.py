@@ -47,6 +47,28 @@ def test_git_gate_is_silent_until_a_helper_is_named(nested_repo):
     assert "skipped" in result.stdout
 
 
+def test_the_skip_is_announced_in_the_pre_commit_form_too(nested_repo):
+    """The form the installer writes, which is the one that matters.
+
+    The managed lefthook block passes bare filenames, which the argument parser
+    labels ``pre-commit`` rather than ``gate``. The skip notice was printed only
+    for ``gate``, so a repo that installed five gates silently ran four — and
+    the one it lost was the one it had most deliberately asked for.
+
+    Found by installing the block into throwaway copies of the three cut-over
+    targets and running the installed command lines, rather than by reading.
+    """
+    nested_repo.write("server/myapp/git_user.py", GIT_CALL)
+
+    result = nested_repo.gate("py_git_subprocess_check.py", "server/myapp/git_user.py")
+
+    assert result.returncode == 0
+    assert "skipped" in result.stdout, (
+        "the pre-commit form must say it did nothing, not exit 0 in silence"
+    )
+    assert "git_subprocess_helper" in result.stdout, "and must say how to enable it"
+
+
 def test_git_gate_flags_an_unscrubbed_call_once_configured(nested_repo):
     configure(nested_repo)
     nested_repo.write("server/myapp/git_user.py", GIT_CALL)
