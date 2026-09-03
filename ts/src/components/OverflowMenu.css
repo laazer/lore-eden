@@ -1,0 +1,97 @@
+/*
+ * The stylesheet `OverflowMenu.tsx` has imported since it was extracted, and
+ * which never existed.
+ *
+ * Nothing caught it: `tsc` does not resolve a `.css` import, vitest stubs one,
+ * and the organization gate reads TypeScript. It surfaced only when a throwaway
+ * consumer ran a real bundler, which failed on the very first build with
+ * `Could not resolve './OverflowMenu.css'`.
+ *
+ * Values are tokens, published as custom properties by `ThemeProvider`.
+ */
+
+.overflow-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.overflow-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--rMd);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.overflow-menu-trigger:hover {
+  background: var(--surface2);
+}
+
+.overflow-menu-trigger:focus-visible,
+.overflow-menu-item:focus-visible {
+  outline: 2px solid var(--accentBright);
+  outline-offset: -2px;
+}
+
+.overflow-menu-panel {
+  position: absolute;
+  z-index: 1;
+  min-inline-size: 12rem;
+  padding: var(--sp1) 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--rMd);
+  box-shadow: var(--shFloat);
+}
+
+/* `left`/`right`, spelled as the component spells them. Checked against the
+   `align` prop rather than assumed: writing `--start`/`--end` here would have
+   shipped exactly the defect this repo criticised in the source it extracted
+   from — a class name nothing emits, and a rule that never applies. */
+.overflow-menu-panel--left { inset-inline-start: 0; }
+.overflow-menu-panel--right { inset-inline-end: 0; }
+
+/* Positioned by the component against a measured anchor, so the panel must not
+   also be placed by this stylesheet. */
+.overflow-menu-panel--anchored {
+  position: fixed;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
+}
+
+.overflow-menu-section + .overflow-menu-section {
+  margin-block-start: var(--sp1);
+  border-block-start: 1px solid var(--border);
+  padding-block-start: var(--sp1);
+}
+
+.overflow-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp2);
+  inline-size: 100%;
+  padding: var(--sp2) var(--sp3);
+  border: none;
+  background: none;
+  color: var(--text);
+  font-family: var(--fontUi);
+  font-size: var(--fsBody);
+  text-align: start;
+  cursor: pointer;
+}
+
+.overflow-menu-item:hover:not(:disabled) {
+  background: var(--surface2);
+}
+
+.overflow-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.overflow-menu-item--danger {
+  color: var(--crit);
+}
