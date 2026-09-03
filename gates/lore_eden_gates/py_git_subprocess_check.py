@@ -247,9 +247,22 @@ def _check(invocation: Invocation) -> int:
         )
         return 0
 
+    #: Counted so the run can say *why* it graded nothing. "examined 0 file(s)"
+    #: over a change that did touch Python is indistinguishable from a gate that
+    #: failed to resolve its scope — the shape this library exists to remove —
+    #: and here it is usually the honest answer: the only Python that changed was
+    #: the helper itself, or a test.
+    exempted: list[Path] = []
+
     def graded(repo: Path | None, candidates: Sequence[Path], discovered: bool) -> list[Path]:
         in_scope = python_files_in_scope(repo, candidates, discovered)
-        return [path for path in in_scope if not _is_exempt(path, house_rules)]
+        kept = []
+        for path in in_scope:
+            if _is_exempt(path, house_rules):
+                exempted.append(path)
+            else:
+                kept.append(path)
+        return kept
 
     run = resolve_gate_scope(
         label=invocation.label,
@@ -259,6 +272,12 @@ def _check(invocation: Invocation) -> int:
         explicit_files=invocation.files,
         select=graded,
     )
+    if not run.files and exempted:
+        print(
+            f"{invocation.label}: {len(exempted)} file(s) exempt from this gate "
+            "— the configured helper defines the chokepoint, and tests drive git "
+            "directly on purpose."
+        )
     if not run.files:
         return 0
 

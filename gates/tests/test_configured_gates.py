@@ -223,3 +223,25 @@ def test_unreadable_file_is_not_reported_clean(nested_repo):
     )
 
     assert result.returncode == 1, result.stdout
+
+
+def test_grading_nothing_says_why_when_everything_was_exempt(nested_repo):
+    """"examined 0 file(s)" must not be the whole story.
+
+    The helper module and the tests are legitimately exempt, so a change that
+    touches only those grades nothing — and a bare zero there is
+    indistinguishable from a gate whose scope never resolved, which is the shape
+    this library exists to remove. Found by pointing lore-eden's own house rules
+    at its own new helper and seeing a silent zero.
+    """
+    configure(nested_repo)
+    nested_repo.write("server/myapp/gitwrap.py", GIT_CALL)
+    nested_repo.write("server/tests/test_thing.py", GIT_CALL)
+
+    result = nested_repo.gate(
+        "py_git_subprocess_check.py", "--repo", str(nested_repo.root), "--scope", "worktree"
+    )
+
+    assert result.returncode == 0
+    assert "exempt from this gate" in result.stdout, result.stdout
+    assert "2 file(s) exempt" in result.stdout
