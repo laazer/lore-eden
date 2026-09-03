@@ -11,18 +11,27 @@ So: add a new entry, never change an applied one. Each migration guards its own
 changes and is safe to re-run, since the only reliable way to know whether one
 applied is to check the schema rather than trust a version number.
 
-Foreign keys are **off** while these run. SQLite alters most things by rebuilding
-the table — create, copy, drop, rename — and a constraint enforced mid-rebuild
-fails against rows that are about to be fine.
+Foreign keys are **off** while these run, via :func:`foreign_keys_disabled`.
+SQLite alters most things by rebuilding the table — create, copy, drop, rename —
+and with enforcement on, the ``DROP`` fails outright against any table that
+references the one being rebuilt.
+
+That sentence was in this docstring before anything implemented it, and
+``PRAGMA foreign_keys`` is silently ignored inside a transaction, so getting it
+wrong looks exactly like getting it right. Both are covered by tests that assert
+the pragma's value rather than trusting the statement to have worked.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Callable, Iterator, Sequence
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from sqlmodel import Session
+
+from lore_eden.store.migration_utils import table_columns, table_exists
 
 
 @dataclass(frozen=True)
@@ -34,14 +43,6 @@ class Migration:
     apply: Callable[[Session], None]
 
 
-def _has_table(session: Session, table: str) -> bool:
-    return inspect(session.get_bind()).has_table(table)
-
-
-def _columns(session: Session, table: str) -> set[str]:
-    if not _has_table(session, table):
-        return set()
-    return {column["name"] for column in inspect(session.get_bind()).get_columns(table)}
 
 
 def _0001_create_cursors_and_runs(session: Session) -> None:
@@ -59,7 +60,7 @@ def _0001_create_cursors_and_runs(session: Session) -> None:
 def _0002_index_run_heartbeat(session: Session) -> None:
     # The stale-run sweep filters on heartbeat_at and runs on a timer against
     # every row that ever ran.
-    if not _has_table(session, "lore_eden_runs"):
+    if not table_exists(session, "lore_eden_runs"):
         return
     session.exec(  # type: ignore[call-overload]
         text(
@@ -76,9 +77,9 @@ def _0003_runs_carry_an_attempt(session: Session) -> None:
     Guarded on the column's absence rather than on a version, because that is
     the only check that is true whichever path the database took to get here.
     """
-    if not _has_table(session, "lore_eden_runs"):
+    if not table_exists(session, "lore_eden_runs"):
         return
-    if "attempt" in _columns(session, "lore_eden_runs"):
+    if "attempt" in table_columns(session, "lore_eden_runs"):
         return
     session.exec(  # type: ignore[call-overload]
         text("ALTER TABLE lore_eden_runs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1")
@@ -94,15 +95,57 @@ MIGRATIONS: tuple[Migration, ...] = (
 )
 
 
+@contextmanager
+def foreign_keys_disabled(session: Session) -> Iterator[None]:
+    """Turn SQLite's foreign-key enforcement off for the duration, then restore it.
+
+    SQLite alters most things by rebuilding the table — create, copy, drop,
+    rename — and with enforcement on, the ``DROP`` fails against any table that
+    references the one being rebuilt. So a rebuild migration is impossible
+    unless this runs first.
+
+    Two details this depends on, both verified rather than assumed:
+
+    - ``PRAGMA foreign_keys`` is a **no-op inside a transaction**, so the
+      session is committed before the pragma is issued. Without that commit the
+      statement succeeds and changes nothing, which is the worst outcome
+      available: enforcement stays on and the caller believes it is off.
+    - The prior value is read back and restored, rather than assuming ``ON``. A
+      host that runs with enforcement off should not have it switched on by
+      applying a migration.
+
+    A non-SQLite backend has no such pragma, and enforcement there is not
+    something a migration can toggle per-connection, so this is a no-op.
+    """
+    bind = session.get_bind()
+    if bind.dialect.name != "sqlite":
+        yield
+        return
+
+    session.commit()
+    previous = session.execute(text("PRAGMA foreign_keys")).scalar()
+    session.execute(text("PRAGMA foreign_keys=OFF"))
+    try:
+        yield
+    finally:
+        session.commit()
+        session.execute(text(f"PRAGMA foreign_keys={'ON' if previous else 'OFF'}"))
+
+
 def run_migrations(session: Session, migrations: Sequence[Migration] = MIGRATIONS) -> list[str]:
-    """Apply every migration in order. Returns the ids that ran.
+    """Apply every migration in order, with foreign keys off. Returns the ids that ran.
 
     Every migration is re-run on every call, which is safe because each guards
     its own changes — and is the reason no ledger table is needed. A ledger is
     one more thing that can disagree with the schema it describes.
+
+    Enforcement is disabled for the whole run rather than per-migration, because
+    a rebuild leaves referencing tables briefly pointing at a table that does
+    not exist, and that window can span two migrations.
     """
     applied: list[str] = []
-    for migration in migrations:
-        migration.apply(session)
-        applied.append(migration.migration_id)
+    with foreign_keys_disabled(session):
+        for migration in migrations:
+            migration.apply(session)
+            applied.append(migration.migration_id)
     return applied

@@ -746,6 +746,52 @@ installed by filesystem path while this package is installed by pip — neither
 can import the other. A test asserts the two lists agree, so the duplication is
 guarded rather than merely regretted.
 
+## Paths and migrations
+
+`lore_eden.paths` normalizes a path a person typed. The failure it prevents is
+that each of these produces a *plausible* path rather than an error — the
+process opens something, just not what the operator named:
+
+```python
+from lore_eden.paths import expand_path, resolve_sqlite_path
+
+expand_path(r"~/Library/Mobile\ Documents")   # the backslash a terminal adds
+expand_path("data/app.db", repo_root=root)     # relative to the repo, not the cwd
+resolve_sqlite_path("sqlite:///data/app.db", root)
+```
+
+Empty input raises rather than resolving to the working directory, which is what
+`Path("")` means; a non-SQLite URL raises rather than being guessed at. The
+iCloud and Obsidian detection that sits beside these in loregarden stayed there
+— it is a host's feature, tied to one OS and one app.
+
+`lore_eden.store.migration_utils` backs the doctrine `migrations.py` already
+states: every migration guards its own changes, so it needs to ask about the
+schema.
+
+```python
+from lore_eden.store.migration_utils import add_columns_if_missing, relax_not_null
+
+def _0004_runs_carry_a_label(session):
+    add_columns_if_missing(session, "lore_eden_runs",
+                           {"label": "ALTER TABLE lore_eden_runs ADD COLUMN label TEXT"})
+```
+
+`relax_not_null` is the one worth knowing about: SQLite has no `ALTER COLUMN`,
+so dropping a constraint means rebuilding the table. The replacement schema is
+read back from `PRAGMA` rather than restated, so the rebuild stays correct
+whatever earlier migrations added — a hand-written `CREATE TABLE` silently drops
+what it was not updated to know about. Indexes and outgoing foreign keys are
+replayed, since a dropped table takes both.
+
+It needs foreign-key enforcement off, and `run_migrations` now provides that.
+Note the shape of the bug it fixes: `migrations.py` **documented** that
+guarantee before anything implemented it, and `PRAGMA foreign_keys` is silently
+ignored inside a transaction — so a guard that does nothing is indistinguishable
+from one that works. The tests assert the pragma's value and that a bad
+reference is still rejected afterwards, never that the statement was issued.
+
+
 ## Timestamps
 
 `lore_eden.timestamps` owns one clock and one conversion:
