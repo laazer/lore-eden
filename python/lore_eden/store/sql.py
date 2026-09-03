@@ -237,3 +237,57 @@ class SqlRunStore:
             for record in (_to_run(row) for row in self.session.exec(statement).all())
             if record.effective_status(moment, stale_after) is RunStatus.ABANDONED
         ]
+
+
+# --- async, for a host whose whole stack is async -----------------------------
+#
+# `corpocoin` and `bridgepath` both wire this, and their two files differ by one
+# variable name and two optional pool keyword arguments. The one difference was
+# my stated reason for declining to share them, which was wrong: pool sizes are
+# arguments, not a reason.
+#
+# The deeper gap it hid: everything above is *sync* SQLAlchemy, so this store
+# could not serve either backend at all.
+
+
+def make_async_engine(
+    url: str,
+    *,
+    echo: bool = False,
+    pool_size: int | None = None,
+    max_overflow: int | None = None,
+):
+    """An async engine with the settings both backends chose identically.
+
+    ``pool_pre_ping`` is on in both and is the one worth keeping without being
+    asked: a pooled connection that a database restart or an idle timeout has
+    killed looks fine until it is used, and the failure surfaces as one
+    arbitrary request dying rather than as anything about the pool.
+
+    ``pool_size`` and ``max_overflow`` are passed through only when given, so
+    SQLAlchemy's defaults stay the defaults rather than this function inventing
+    numbers for a host it knows nothing about.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    options: dict[str, object] = {"echo": echo, "pool_pre_ping": True}
+    if pool_size is not None:
+        options["pool_size"] = pool_size
+    if max_overflow is not None:
+        options["max_overflow"] = max_overflow
+    return create_async_engine(url, **options)
+
+
+def make_async_session_factory(engine):
+    """A session factory with ``expire_on_commit=False``.
+
+    Both backends set that flag and neither said why, so: without it, every
+    attribute of a committed object is expired, and the next read of one issues
+    a fresh query — which in an async session raises rather than lazily loading.
+    So returning a just-committed row from a request handler blows up, and the
+    fix looks like a mysterious `MissingGreenlet`. Off is the right default for
+    a request-scoped session, and it is worth carrying with the reason attached.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    return async_sessionmaker(engine, expire_on_commit=False)

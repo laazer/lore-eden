@@ -610,3 +610,103 @@ no agent, so the runner used to raise `UnknownAgentError` — reachable whenever
 caller reads the cursor fresh rather than remembering it finished, which is a cron
 firing once more, a duplicate queue message, or an operator re-running a command.
 The in-process example never hit it because its loop broke on `finished` first.
+
+## Service scaffolding
+
+`corpocoin` and `bridgepath` each grew the same layer around FastAPI. Where the
+two disagreed, the module that owns each piece records which won and why — the
+losing version is still running in one of them, and a note in a commit message
+would not reach whoever reads the code.
+
+```python
+from lore_eden.service import (
+    DomainError, NotFoundError, install_domain_error_handlers,
+    RequestIDMiddleware, SecurityHeadersMiddleware, PaginationParams,
+)
+
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware, is_production=True)
+install_domain_error_handlers(app)
+```
+
+### Domain errors carry no HTTP status
+
+```python
+raise NotFoundError("No deal with that id")   # in a service, importing no web framework
+```
+
+The other live design had the exception carry its own `status_code`. An
+exception that knows an HTTP status has an opinion about a transport it should
+not know exists, which is what stops it being raised from a worker, a CLI or a
+test. A subprocess test asserts raising one pulls in neither FastAPI nor
+Starlette.
+
+`status_for` walks the MRO, so a host's own `DealNotFound(NotFoundError)` maps
+to 404 without registering anything. A flat dict of exact types would send it to
+500 — a hierarchy silently failing to be one.
+
+### A stale justification, kept as a measurement
+
+`corpocoin`'s request-id middleware is pure ASGI, and its docstring says why:
+`BaseHTTPMiddleware` runs the response body in a new task, losing contextvars
+bound before it.
+
+**That was true and is no longer.** A test builds the `BaseHTTPMiddleware`
+version and asserts the contextvar *survives* — on Starlette 1.6 it does. Both
+backends floor at `fastapi>=0.111.0`, well past the fix. Pure ASGI is still what
+we ship, on weaker honest merits: one less task hop, no dependency on
+`BaseHTTPMiddleware` streaming semantics. Had the extraction not tested the
+claim, this library would be repeating a retired bug report as a current reason.
+
+### The rate limiter logs when it stops limiting
+
+`fail_open` keeps the source's availability choice — a limiter that cannot reach
+its counter lets traffic through rather than refusing everyone — but it now logs
+at error level when it does. The silent version is a control an attacker
+disables by taking out one dependency.
+
+The counter is injected, so a host with Redis passes one backed by it and a test
+passes a dict. This package gains no Redis dependency for a feature not every
+consumer wants.
+
+## Security
+
+`pip install "lore-eden[security]"`. Nothing in the harness, runner, workflow
+engine or store imports it.
+
+### A timing defence that spends real time
+
+`bridgepath` guards its login against account enumeration by verifying a dummy
+hash when no user matches, so the absent-user path costs what the present-user
+path costs. The idea is right. The implementation did no work:
+
+```python
+try:
+    _verify_password_hash("dummy", "$2b$12$0000…")   # 63 chars; bcrypt's are 60
+except Exception:
+    pass
+```
+
+Malformed, so `checkpw` raises immediately — **measured at 0.0 ms against
+356 ms** for a real verify, about 22,000×. The bare `except` hides the raise, so
+the code reads as defended while the signal it removes is intact.
+
+`spend_verification_time()` hashes against a dummy generated **at import**, so
+it cannot be a malformed literal nobody eyeballs, and nothing here swallows an
+exception. A test asserts the two paths stay within 3× of each other.
+
+### The token checks nobody remembers
+
+- **No default signing secret.** A library shipping one ships a forgery kit.
+- **A short HMAC secret is refused, not warned about.** PyJWT warns below
+  32 bytes and signs anyway; a warning in a log nobody greps is how a
+  12-character secret reaches production.
+- **`decode_token` takes the expected token *kind*.** A valid signature says a
+  token came from you, not that it is the token this endpoint wanted. Without
+  that check a long-lived refresh token works as an access token everywhere.
+- **Extra claims merge *under* the registered ones**, so a caller passing `exp`
+  cannot silently extend a lifetime.
+
+`TokenKind` is an enum rather than two string constants, because `kind` and
+`expect` are the parameters that decide whether a refresh token may act as an
+access token, and a typo there is a hole a type checker would have caught.

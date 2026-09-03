@@ -89,7 +89,13 @@ def main() -> int:
         deadline = time.monotonic() + float(sys.argv[2])
         while time.monotonic() < deadline:
             emit({"type": "assistant", "text": "still going"})
-            time.sleep(0.05)
+            # 0.02s, not 0.05s. The hard-cap test runs this against a 0.3s idle
+            # budget, so at 0.05s a stall of six missed writes flips which
+            # deadline fires and the test asserts the wrong one. Tightening the
+            # interval widens that margin from 6 gaps to 15. Hardening, not a
+            # fix: the one observed failure was never reproduced — see the note
+            # in test_agent_bridge.TestTimeouts.
+            time.sleep(0.02)
         emit({"type": "result", "subtype": "success", "is_error": False})
         return 0
 
