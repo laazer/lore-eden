@@ -17,9 +17,20 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Sequence
+from typing import Mapping, Sequence
 
-from lore_eden.store.records import CursorRecord, RunRecord, RunStatus, utcnow
+from lore_eden.store.records import (
+    CursorRecord,
+    CycleRecord,
+    RelationRecord,
+    RunRecord,
+    RunStatus,
+    WorkItemRecord,
+    RelationKind,
+    WorkItemState,
+    WorkItemType,
+    utcnow,
+)
 
 
 class InMemoryCursorStore:
@@ -111,3 +122,179 @@ class InMemoryRunStore:
             for record in self._runs.values()
             if record.effective_status(moment, stale_after) is RunStatus.ABANDONED
         ]
+
+
+class InMemoryWorkItemStore:
+    """Items in a dict, keyed by id.
+
+    The child index is derived on read rather than maintained on write. Two
+    structures that must agree is a bug waiting for the first caller who
+    reparents an item, and this store is small enough that the scan costs less
+    than the invariant would.
+    """
+
+    def __init__(self) -> None:
+        self._items: dict[str, WorkItemRecord] = {}
+
+    def get_item(self, item_id: str) -> WorkItemRecord | None:
+        found = self._items.get(item_id)
+        return replace(found) if found is not None else None
+
+    def get_items(self, item_ids: Sequence[str]) -> Mapping[str, WorkItemRecord]:
+        return {
+            item_id: replace(self._items[item_id])
+            for item_id in item_ids
+            if item_id in self._items
+        }
+
+    def save_item(self, record: WorkItemRecord) -> WorkItemRecord:
+        stored = replace(record)
+        self._items[stored.id] = stored
+        return replace(stored)
+
+    def delete_item(self, item_id: str) -> bool:
+        return self._items.pop(item_id, None) is not None
+
+    def children_of(self, parent_ids: Sequence[str]) -> Mapping[str, Sequence[WorkItemRecord]]:
+        # Every requested key present, including the childless ones: a caller
+        # that had to tell "no children" from "not asked" would ask again.
+        found: dict[str, list[WorkItemRecord]] = {parent: [] for parent in parent_ids}
+        for item in self._items.values():
+            if item.parent_id in found:
+                found[item.parent_id].append(replace(item))
+        return found
+
+    def list_items(
+        self,
+        *,
+        item_type: WorkItemType | None = None,
+        state: WorkItemState = WorkItemState(""),
+        cycle_id: str = "",
+        parent_id: str = "",
+        limit: int = 100,
+    ) -> Sequence[WorkItemRecord]:
+        matched = [
+            replace(item)
+            for item in self._items.values()
+            if (item_type is None or item.item_type == item_type)
+            and (not state or item.state == state)
+            and (not cycle_id or item.cycle_id == cycle_id)
+            and (not parent_id or item.parent_id == parent_id)
+        ]
+        matched.sort(key=lambda item: (item.priority, item.created_at, item.id))
+        return matched[:limit]
+
+
+class InMemoryDependencyStore:
+    """Edges as a set of pairs.
+
+    No cycle check here, deliberately: that needs a walk over the graph, and a
+    storage layer that walked would be answering a question the engine owns.
+    """
+
+    def __init__(self) -> None:
+        self._edges: set[tuple[str, str]] = set()
+
+    def add_dependency(self, item_id: str, depends_on_id: str) -> bool:
+        edge = (item_id, depends_on_id)
+        if edge in self._edges:
+            return False
+        self._edges.add(edge)
+        return True
+
+    def remove_dependency(self, item_id: str, depends_on_id: str) -> bool:
+        edge = (item_id, depends_on_id)
+        if edge not in self._edges:
+            return False
+        self._edges.discard(edge)
+        return True
+
+    def prerequisites_map(self, item_ids: Sequence[str]) -> Mapping[str, frozenset[str]]:
+        wanted = set(item_ids)
+        found: dict[str, set[str]] = {item_id: set() for item_id in wanted}
+        for item_id, depends_on_id in self._edges:
+            if item_id in wanted:
+                found[item_id].add(depends_on_id)
+        return {item_id: frozenset(edges) for item_id, edges in found.items()}
+
+    def dependents_map(self, item_ids: Sequence[str]) -> Mapping[str, frozenset[str]]:
+        wanted = set(item_ids)
+        found: dict[str, set[str]] = {item_id: set() for item_id in wanted}
+        for item_id, depends_on_id in self._edges:
+            if depends_on_id in wanted:
+                found[depends_on_id].add(item_id)
+        return {item_id: frozenset(edges) for item_id, edges in found.items()}
+
+
+class InMemoryCycleStore:
+    def __init__(self) -> None:
+        self._cycles: dict[str, CycleRecord] = {}
+
+    def get_cycle(self, cycle_id: str) -> CycleRecord | None:
+        found = self._cycles.get(cycle_id)
+        return replace(found) if found is not None else None
+
+    def save_cycle(self, record: CycleRecord) -> CycleRecord:
+        stored = replace(record)
+        self._cycles[stored.id] = stored
+        return replace(stored)
+
+    def list_cycles(
+        self, *, state: WorkItemState = WorkItemState("")
+    ) -> Sequence[CycleRecord]:
+        return [
+            replace(cycle)
+            for cycle in self._cycles.values()
+            if not state or cycle.state == state
+        ]
+
+
+class InMemoryTagStore:
+    def __init__(self) -> None:
+        self._tags: dict[str, tuple[str, ...]] = {}
+
+    def tags_for(self, item_ids: Sequence[str]) -> Mapping[str, tuple[str, ...]]:
+        return {item_id: self._tags.get(item_id, ()) for item_id in item_ids}
+
+    def set_tags(self, item_id: str, tags: Sequence[str]) -> tuple[str, ...]:
+        # Order is the caller's, minus repeats. Sorting would quietly reorder a
+        # host's own display order; keeping duplicates would let a tag count
+        # twice.
+        seen: list[str] = []
+        for tag in tags:
+            if tag not in seen:
+                seen.append(tag)
+        stored = tuple(seen)
+        self._tags[item_id] = stored
+        return stored
+
+
+class InMemoryRelationStore:
+    def __init__(self) -> None:
+        self._relations: set[tuple[str, str, str]] = set()
+
+    def add_relation(self, record: RelationRecord) -> bool:
+        key = (record.item_id, record.related_id, record.kind.value)
+        if key in self._relations:
+            return False
+        self._relations.add(key)
+        return True
+
+    def remove_relation(self, record: RelationRecord) -> bool:
+        key = (record.item_id, record.related_id, record.kind.value)
+        if key not in self._relations:
+            return False
+        self._relations.discard(key)
+        return True
+
+    def relations_for(
+        self, item_ids: Sequence[str]
+    ) -> Mapping[str, Sequence[RelationRecord]]:
+        wanted = set(item_ids)
+        found: dict[str, list[RelationRecord]] = {item_id: [] for item_id in wanted}
+        for item_id, related_id, kind in sorted(self._relations):
+            if item_id in wanted:
+                found[item_id].append(
+                    RelationRecord(item_id, related_id, RelationKind(kind))
+                )
+        return found

@@ -28,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, NewType
 from uuid import uuid4
 
 #: Re-exported: `utcnow` is part of this module's published surface, and the
@@ -151,3 +151,116 @@ class CursorRecord:
     #: see `lore_eden.runner.resolve_agent`.
     agent_override: str = ""
     updated_at: datetime = field(default_factory=utcnow)
+
+
+#: A work item's state, in whatever vocabulary its host declares.
+#:
+#: A distinct type rather than a bare ``str``, and not an enum, because both of
+#: the obvious answers are wrong here. An enum would have to pick one host's
+#: vocabulary — five states in one, six in another, neither a superset — and
+#: force the other to translate at every boundary. A bare ``str`` says nothing
+#: at all, which is the smell this repo's own gate exists to catch. A ``NewType``
+#: names the concept, costs nothing at runtime, and still lets a host bring its
+#: own set: it constructs one from its enum's value at the edge, once.
+WorkItemState = NewType("WorkItemState", str)
+
+
+class WorkItemType(str, Enum):
+    """The hierarchy a work item sits in.
+
+    Fixed, and deliberately so: the shape of the tree is what the hierarchy
+    rules are written against, and a host that could add a level would be
+    writing its own rules anyway. What a host *does* vary is the state
+    vocabulary — see :class:`WorkItemRecord.state`.
+    """
+
+    MILESTONE = "milestone"
+    FEATURE = "feature"
+    CAPABILITY = "capability"
+    TASK = "task"
+    BUG = "bug"
+
+
+#: Which children each type may take. A bug hangs off anything above a task,
+#: because a defect is found against the thing it breaks, not against a level.
+VALID_CHILDREN: Mapping[WorkItemType, tuple[WorkItemType, ...]] = {
+    WorkItemType.MILESTONE: (WorkItemType.FEATURE, WorkItemType.BUG),
+    WorkItemType.FEATURE: (WorkItemType.CAPABILITY, WorkItemType.BUG),
+    WorkItemType.CAPABILITY: (WorkItemType.TASK, WorkItemType.BUG),
+    WorkItemType.TASK: (),
+    WorkItemType.BUG: (),
+}
+
+
+@dataclass
+class WorkItemRecord:
+    """One tracked piece of work, as a plain value.
+
+    ## Why ``state`` is a string and ``item_type`` is not
+
+    The repository these rules come from treats a stringly-typed vocabulary as a
+    defect, and its gate says so. This field is the exception, and the reason is
+    that the vocabulary is not ours: one host runs five states
+    (``backlog, in_progress, blocked, done, wont_do``) and another wants six
+    (``BACKLOG -> READY -> ACTIVE -> STALLED -> VALIDATION -> RESOLVED``), and
+    neither contains the other. An enum here would force one host to translate
+    at every boundary, which is how a vocabulary ends up with two spellings and
+    a mapping table nobody trusts.
+
+    So the *storage* layer carries the state opaquely, and the engine validates
+    it against the vocabulary its host declares. The type hierarchy is the
+    opposite case — the same everywhere the hierarchy rules apply — and stays an
+    enum.
+    """
+
+    external_id: str
+    title: str
+    item_type: WorkItemType
+    state: WorkItemState
+    id: str = field(default_factory=lambda: str(uuid4()))
+    parent_id: str = ""
+    cycle_id: str = ""
+    priority: int = 3
+    description: str = ""
+    created_at: datetime = field(default_factory=utcnow)
+    updated_at: datetime = field(default_factory=utcnow)
+
+    def touched(self, *, now: datetime | None = None) -> "WorkItemRecord":
+        """A copy stamped as changed. Callers do not mutate records in place."""
+        return replace(self, updated_at=as_utc(now) if now is not None else utcnow())
+
+
+@dataclass
+class CycleRecord:
+    """An iteration — a sprint, by whatever name the host uses.
+
+    ``state`` is host vocabulary for the same reason a work item's is.
+    """
+
+    name: str
+    state: WorkItemState
+    id: str = field(default_factory=lambda: str(uuid4()))
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+class RelationKind(str, Enum):
+    """How two items relate when neither blocks the other.
+
+    Ours, not the host's: a relation with no defined meaning is a link nobody
+    can act on. Ordering lives in the dependency graph instead, where a cycle
+    can be refused.
+    """
+
+    RELATES_TO = "relates_to"
+    DUPLICATES = "duplicates"
+    SUPERSEDES = "supersedes"
+
+
+@dataclass
+class RelationRecord:
+    """A directed, non-blocking link between two items."""
+
+    item_id: str
+    related_id: str
+    kind: RelationKind = RelationKind.RELATES_TO

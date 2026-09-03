@@ -23,9 +23,18 @@ again.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Protocol, Sequence
+from typing import Mapping, Protocol, Sequence
 
-from lore_eden.store.records import CursorRecord, RunRecord, RunStatus
+from lore_eden.store.records import (
+    CursorRecord,
+    CycleRecord,
+    RelationRecord,
+    RunRecord,
+    RunStatus,
+    WorkItemRecord,
+    WorkItemState,
+    WorkItemType,
+)
 from lore_eden.workflow.approvals import Approval
 
 
@@ -104,3 +113,128 @@ __all__ = [
     "RunStatus",
     "RunStore",
 ]
+
+
+# ---------------------------------------------------------------------------
+# The work-item engine's storage.
+#
+# Two rules run through every signature below, and both are the difference
+# between a library a host can adopt and one it has to fork.
+#
+# **No session, connection or ORM model appears in any of them.** The codebase
+# these were lifted from passes a live SQLModel `Session` into every service —
+# `TicketDependencies.__init__(self, session)` is the shape throughout — which
+# reads as harmless and means the engine only runs on that host's database, on
+# SQLite, in that process. A host with Postgres and a different ORM implements
+# what is below and installs no extra.
+#
+# **Every read that answers about more than one item takes a collection.** A
+# board rendering two hundred cards asks once. The batch methods return a
+# mapping keyed by the id asked for, including keys with nothing against them,
+# so a caller never has to distinguish "absent" from "empty" by a second query.
+# ---------------------------------------------------------------------------
+
+
+class WorkItemStore(Protocol):
+    """The items themselves, and the tree they hang in."""
+
+    def get_item(self, item_id: str) -> WorkItemRecord | None: ...
+
+    def get_items(self, item_ids: Sequence[str]) -> Mapping[str, WorkItemRecord]:
+        """The items that exist, keyed by id. Missing ids are simply absent."""
+        ...
+
+    def save_item(self, record: WorkItemRecord) -> WorkItemRecord: ...
+
+    def delete_item(self, item_id: str) -> bool:
+        """True when something was deleted, False when there was nothing to."""
+        ...
+
+    def children_of(self, parent_ids: Sequence[str]) -> Mapping[str, Sequence[WorkItemRecord]]:
+        """Direct children per parent — one query, every key present.
+
+        Depth is the caller's business. A subtree walk asks level by level, so
+        its query count follows the tree's depth rather than its size, which is
+        the bound that matters: trees get wide long before they get deep.
+        """
+        ...
+
+    def list_items(
+        self,
+        *,
+        item_type: WorkItemType | None = None,
+        state: WorkItemState = WorkItemState(""),
+        cycle_id: str = "",
+        parent_id: str = "",
+        limit: int = 100,
+    ) -> Sequence[WorkItemRecord]:
+        """Filtered list. Named parameters rather than a filter bag, so a typo
+        is a TypeError instead of a filter that silently matched everything."""
+        ...
+
+
+class DependencyStore(Protocol):
+    """Which items wait for which.
+
+    Storage only: whether an edge would close a cycle is the engine's question,
+    because answering it needs a graph walk and this layer holds edges. What
+    this layer guarantees is that the walk can be done in queries proportional
+    to the graph's *depth* — :meth:`prerequisites_map` takes a whole level at a
+    time.
+    """
+
+    def add_dependency(self, item_id: str, depends_on_id: str) -> bool:
+        """True when the edge was new. Idempotent — re-adding is not an error."""
+        ...
+
+    def remove_dependency(self, item_id: str, depends_on_id: str) -> bool: ...
+
+    def prerequisites_map(self, item_ids: Sequence[str]) -> Mapping[str, frozenset[str]]:
+        """What each id waits for. Every key present, empty when nothing."""
+        ...
+
+    def dependents_map(self, item_ids: Sequence[str]) -> Mapping[str, frozenset[str]]:
+        """The same edges read the other way — what waits on each id."""
+        ...
+
+
+class CycleStore(Protocol):
+    """Iterations, by whatever name the host calls a sprint."""
+
+    def get_cycle(self, cycle_id: str) -> CycleRecord | None: ...
+
+    def save_cycle(self, record: CycleRecord) -> CycleRecord: ...
+
+    def list_cycles(
+        self, *, state: WorkItemState = WorkItemState("")
+    ) -> Sequence[CycleRecord]: ...
+
+
+class TagStore(Protocol):
+    """Free-form labels on items."""
+
+    def tags_for(self, item_ids: Sequence[str]) -> Mapping[str, tuple[str, ...]]:
+        """Tags per id, every key present."""
+        ...
+
+    def set_tags(self, item_id: str, tags: Sequence[str]) -> tuple[str, ...]:
+        """Replace an item's tags outright, and report what it now carries."""
+        ...
+
+
+class RelationStore(Protocol):
+    """Links that do not order anything.
+
+    Separate from :class:`DependencyStore` on purpose. A relation carries no
+    scheduling meaning, so it needs no cycle check — and keeping it in the same
+    table as the edges that do is how "relates to" ends up silently blocking a
+    queue.
+    """
+
+    def add_relation(self, record: RelationRecord) -> bool: ...
+
+    def remove_relation(self, record: RelationRecord) -> bool: ...
+
+    def relations_for(
+        self, item_ids: Sequence[str]
+    ) -> Mapping[str, Sequence[RelationRecord]]: ...

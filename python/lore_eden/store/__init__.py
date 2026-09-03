@@ -24,26 +24,65 @@ Importing this package pulls in none of SQLModel; reach for
 """
 
 from lore_eden.store.cursors import to_cursor_record, to_workflow_cursor
-from lore_eden.store.memory import InMemoryCursorStore, InMemoryRunStore
-from lore_eden.store.protocols import ApprovalStorage, CursorStore, RunStore
+from lore_eden.store.memory import (
+    InMemoryCursorStore,
+    InMemoryCycleStore,
+    InMemoryDependencyStore,
+    InMemoryRelationStore,
+    InMemoryRunStore,
+    InMemoryTagStore,
+    InMemoryWorkItemStore,
+)
+from lore_eden.store.protocols import (
+    ApprovalStorage,
+    CursorStore,
+    CycleStore,
+    DependencyStore,
+    RelationStore,
+    RunStore,
+    TagStore,
+    WorkItemStore,
+)
 from lore_eden.store.records import (
     DEFAULT_STALE_AFTER,
+    VALID_CHILDREN,
     CursorRecord,
+    CycleRecord,
+    RelationKind,
+    RelationRecord,
     RunRecord,
     RunStatus,
+    WorkItemRecord,
+    WorkItemType,
     utcnow,
 )
 
 __all__ = [
     "DEFAULT_STALE_AFTER",
+    "VALID_CHILDREN",
     "ApprovalStorage",
     "CursorRecord",
     "CursorStore",
+    "CycleRecord",
+    "CycleStore",
+    "DependencyStore",
     "InMemoryCursorStore",
+    "InMemoryCycleStore",
+    "InMemoryDependencyStore",
+    "InMemoryRelationStore",
     "InMemoryRunStore",
+    "InMemoryTagStore",
+    "InMemoryWorkItemStore",
+    "RelationKind",
+    "RelationRecord",
+    "RelationStore",
     "RunRecord",
     "RunStatus",
     "RunStore",
+    "TagStore",
+    "WorkItemRecord",
+    "WorkItemStore",
+    "WorkItemType",
     "to_cursor_record",
     "to_workflow_cursor",
     "utcnow",
