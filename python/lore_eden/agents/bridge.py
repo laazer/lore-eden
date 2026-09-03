@@ -23,7 +23,13 @@ from pathlib import Path
 from typing import Any
 
 from lore_eden.agents.policy import PermissionDecision, PermissionPolicy, deny_all
-from lore_eden.agents.process import ProcessResult, ProcessSupervisor, TimeoutKind, close_stdin
+from lore_eden.agents.process import (
+    DEFAULT_HARD_CAP_MULTIPLIER,
+    ProcessResult,
+    ProcessSupervisor,
+    TimeoutKind,
+    close_stdin,
+)
 from lore_eden.agents.protocol import (
     ToolPermissionRequest,
     build_control_response,
@@ -90,6 +96,11 @@ class PermissionBridge:
     env_overlay: dict[str, str] = field(default_factory=dict)
     policy: PermissionPolicy = field(default_factory=deny_all)
     idle_timeout: float = 300.0
+    #: How many idle budgets a run may take in total before the hard cap stops
+    #: it. Forwarded to the supervisor, which has always had the knob — the
+    #: bridge just did not pass it on, so a host that tuned the idle budget got
+    #: a ceiling six times whatever it picked and no way to say otherwise.
+    hard_cap_multiplier: float = DEFAULT_HARD_CAP_MULTIPLIER
     #: Consulted between lines and while the policy blocks.
     cancelled: Callable[[], bool] = lambda: False
     #: Called for every decoded message, for a host that wants telemetry.
@@ -103,6 +114,7 @@ class PermissionBridge:
             cwd=self.cwd,
             env_overlay=self.env_overlay,
             idle_timeout=self.idle_timeout,
+            hard_cap_multiplier=self.hard_cap_multiplier,
             cancelled=self.cancelled,
         )
 
