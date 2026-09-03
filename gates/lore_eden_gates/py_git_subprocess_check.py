@@ -233,8 +233,18 @@ def _check(invocation: Invocation) -> int:
         # No designated wrapper means no actionable finding. Say so rather than
         # printing a pass, so a repo that meant to enable this can tell the
         # difference between "clean" and "never ran".
-        if invocation.label == "gate":
-            print("gate: git-subprocess check skipped (no git_subprocess_helper configured).")
+        #
+        # Printed for *every* invocation form. It was once suppressed unless the
+        # label was "gate", which silenced it in the one form that matters most:
+        # the pre-commit entry the installer writes passes bare filenames and
+        # gets the label "pre-commit". So a repo that installed five gates
+        # silently ran four, and the check it most wanted — this one — reported
+        # nothing while doing nothing.
+        print(
+            f"{invocation.label}: git-subprocess check skipped — no "
+            "git_subprocess_helper in .lore-eden-gates.json, so there is no "
+            "wrapper to require calls to route through."
+        )
         return 0
 
     def graded(repo: Path | None, candidates: Sequence[Path], discovered: bool) -> list[Path]:

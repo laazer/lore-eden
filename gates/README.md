@@ -126,3 +126,36 @@ The suite builds real disposable git repositories rather than mocking one, in
 three different layouts — Python under `server/`, under `asset_generation/`, and
 at the repo root — because "it detects layout" is the load-bearing claim here and
 a mocked diff would test the half that was never in question.
+
+## Two gates are off until the repo names its helper
+
+`py_git_subprocess_check` and `py_defensive_normalization_check` need to know
+what *this* repo's designated wrapper is, and no library can guess that. Give
+them a `.lore-eden-gates.json` at the repo root:
+
+```json
+{
+  "git_subprocess_helper": "myapp.services.git_subprocess.run_git",
+  "git_subprocess_helper_path": "myapp/services/git_subprocess.py"
+}
+```
+
+**Without it the git-subprocess gate does nothing**, and says so on every run —
+in both the pre-commit form and the `--repo/--scope` form. It once announced the
+skip only in the second, which meant a repo that installed five gates silently
+ran four, and the one it lost was the one it had most deliberately asked for.
+
+An unknown key or a malformed file raises rather than defaulting. A repo that
+meant to configure a gate and typed the key wrongly should hear about it, not
+get the unconfigured behaviour it was trying to leave.
+
+## Checking a repo without changing it
+
+```bash
+gates/scripts/install-workspace-hooks.sh --check /path/to/repo
+```
+
+Reports `missing`, `outdated` or `ok` and writes nothing — so you can see what an
+install would do before doing it. Re-running the installer on a repo that already
+has the block refreshes it in place; a block written by loregarden's predecessor
+of this script is **replaced, not stacked beside**.
