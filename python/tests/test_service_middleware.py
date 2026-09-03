@@ -244,3 +244,51 @@ class TestRateLimit:
         client = TestClient(self.app(self.counting(), enabled=False))
         for _ in range(10):
             assert client.post("/write").status_code == 200
+
+
+class TestTheyTravelToADjangoHost:
+    """Asked by the MCP transport work: does `lore_eden.service` drag FastAPI
+    into a Django project along with the Django MCP view?
+
+    It does not, and the reason is stronger than "no import". These three are
+    pure ASGI — ``__call__(scope, receive, send)`` — so they wrap *any* ASGI
+    application, Django's included. A Django host wraps
+    ``get_asgi_application()`` rather than adding them to ``MIDDLEWARE``, which
+    is a different wiring point, not a missing capability.
+
+    Proven by running one against a real Django ASGI app rather than by reading
+    the signatures, because "it imports nothing framework-specific" and "it
+    works there" are different claims.
+    """
+
+    @staticmethod
+    def _get(app, path: str):
+        """Drive the ASGI app over a real client.
+
+        Hand-rolling ``receive``/``send`` looks simpler and is not: Django's
+        handler listens for a disconnect alongside the response, so a fake
+        ``receive`` either repeats the body — which it rejects — or reports a
+        disconnect that cancels the request before it answers.
+        """
+        import httpx
+        from asgiref.sync import async_to_sync
+
+        async def call():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://testserver"
+            ) as client:
+                return await client.get(path)
+
+        return async_to_sync(call)()
+
+    def test_request_id_middleware_wraps_a_django_asgi_app(self) -> None:
+        from mcp_transport_fixtures import configure_django
+
+        configure_django()
+        from django.core.asgi import get_asgi_application
+
+        response = self._get(RequestIDMiddleware(get_asgi_application()), "/mcp")
+
+        assert response.status_code == 200
+        assert response.headers[REQUEST_ID_HEADER]

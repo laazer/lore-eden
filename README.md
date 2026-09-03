@@ -41,6 +41,22 @@ Registering a name twice raises `DuplicateToolError` rather than replacing the
 first — a silent overwrite is a tool that stops being callable while everything
 still looks wired up.
 
+On Django, the same server mounts as a view:
+
+```python
+from django.urls import path
+from lore_eden.mcp import make_mcp_django_view
+
+urlpatterns = [
+    path("mcp", make_mcp_django_view(McpServer(ServerInfo("my-host", "1.0"), registry))),
+]
+```
+
+Both transports are driven by one conformance suite, so they answer alike. The
+protocol handler itself imports neither web framework — `lore_eden.mcp` defers
+each transport's import to first use — so a Django host installs
+`lore-eden[django]` and never pulls FastAPI into a request path.
+
 A workflow is stages, transitions, and the shell commands that gate them:
 
 ```python
