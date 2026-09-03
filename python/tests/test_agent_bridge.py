@@ -163,29 +163,71 @@ class TestTimeouts:
         assert outcome.timed_out is TimeoutKind.NONE
         assert outcome.ok is True
 
-    # Observed failing once, in a full-suite run that overlapped a Rust
-    # compile and took 123s against the usual 63s. Not reproduced since: 427/427
-    # on the next full run, 6/6 in isolation, 3/3 under eight-way CPU
-    # contention. So the cause is unproven, and "it passed on retry" is not a
-    # diagnosis. What is objectively true is that the margin was thin — the
-    # fake agent emitted every 0.05s against a 0.3s idle budget, six gaps — so
-    # the interval is now 0.02s. If this fails again, that margin is the first
-    # thing to widen further, and the emit interval is the quantity to change.
+    # It failed again, and the note left last time named the fix: "that margin
+    # is the first thing to widen further."
+    #
+    # Failure two was a full-suite run of 567s against the usual ~230s, with a
+    # Postgres container alongside it. Same shape as failure one (123s against
+    # 63s), which makes the quantity that separates pass from fail no longer
+    # unproven: it is wall-clock load. 5/5 in isolation at 2.6s says nothing
+    # either way, which is why isolation was never the evidence.
+    #
+    # The previous fix widened the *interval* — 0.05s to 0.02s, more gaps. That
+    # cannot help: a single scheduler stall longer than the budget trips it
+    # however often the agent emits. The budget is the quantity, and it was
+    # capped by the ceiling: idle x 6 had to stay under the agent's 10s runtime,
+    # so the budget could not go past ~1.5s.
+    #
+    # So the multiplier is now the thing that gives. `PermissionBridge` never
+    # forwarded it, though the supervisor always had it — with it forwarded, a
+    # 1.5s budget at a multiplier of 1.5 is a 2.25s ceiling: the same runtime as
+    # the old 0.3 x 6, with five times the tolerance for a stalled subprocess.
     def test_the_hard_cap_catches_a_run_that_never_goes_quiet(self):
         # Chatty forever would never trip the idle budget, which is exactly the
         # loop the second deadline exists for.
-        # idle 0.3 x the default multiplier of 6 is a 1.8s ceiling, well under
-        # the agent's 10s — and the agent never goes quiet, so only the hard cap
-        # can stop it.
-        outcome = bridge('chatty', '10', idle_timeout=0.3).run()
+        outcome = bridge(
+            'chatty', '10', idle_timeout=1.5, hard_cap_multiplier=1.5
+        ).run()
 
         assert outcome.timed_out is TimeoutKind.HARD
+
+    def test_the_multiplier_actually_reaches_the_supervisor(self):
+        """A parameter the bridge accepts and drops looks exactly like one that
+        works — the run still ends, just at the wrong ceiling.
+
+        Asserted on the constructor call rather than on elapsed time, because a
+        timing assertion is what this whole class of failure came from. The
+        patch targets the name `bridge` bound at import, which is the one `run`
+        actually calls.
+        """
+        from unittest import mock
+
+        from lore_eden.agents.process import ProcessResult
+
+        with mock.patch("lore_eden.agents.bridge.ProcessSupervisor") as supervisor:
+            supervisor.return_value.run.return_value = ProcessResult(returncode=0, stdout="", stderr="")
+            bridge("ok", idle_timeout=2.0, hard_cap_multiplier=1.5).run()
+
+        assert supervisor.call_args.kwargs["idle_timeout"] == 2.0
+        assert supervisor.call_args.kwargs["hard_cap_multiplier"] == 1.5
+
+    def test_the_default_multiplier_is_still_the_supervisors(self):
+        """The control: a host that says nothing must get what it got before."""
+        from unittest import mock
+
+        from lore_eden.agents.process import DEFAULT_HARD_CAP_MULTIPLIER, ProcessResult
+
+        with mock.patch("lore_eden.agents.bridge.ProcessSupervisor") as supervisor:
+            supervisor.return_value.run.return_value = ProcessResult(returncode=0, stdout="", stderr="")
+            bridge("ok").run()
+
+        assert supervisor.call_args.kwargs["hard_cap_multiplier"] == DEFAULT_HARD_CAP_MULTIPLIER
 
     def test_the_two_timeouts_are_distinguishable(self):
         # They diagnose different faults: idle is usually a wedged tool, hard is
         # usually a loop, and a caller routes them differently.
         idle = bridge('quiet', '10', idle_timeout=0.4).run()
-        hard = bridge('chatty', '10', idle_timeout=0.3).run()
+        hard = bridge('chatty', '10', idle_timeout=1.5, hard_cap_multiplier=1.5).run()
 
         assert idle.timed_out is not hard.timed_out
 
