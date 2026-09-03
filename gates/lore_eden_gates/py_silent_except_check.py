@@ -55,6 +55,12 @@ _LEFTHOOK_SCRIPTS = Path(__file__).resolve().parent
 if str(_LEFTHOOK_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_LEFTHOOK_SCRIPTS))
 
+from interpreter import require_python  # noqa: E402 - sys.path is set up just above
+
+# Before the imports below, not inside main(): the version this gate needs is
+# needed to *import* them, so a check that ran later would never run at all.
+require_python()
+
 from precommit_git_diff import (  # noqa: E402 - sys.path is set up just above
     DEFAULT_BASE_REF,
     STAGED,
