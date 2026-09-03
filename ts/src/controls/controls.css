@@ -1,0 +1,294 @@
+/*
+ * The stylesheet the source did not have.
+ *
+ * loremaker's foundation, input and feedback components emit BEM-ish class
+ * names — `btn btn--primary`, `lg-switch--sm` — and **thirty of the
+ * thirty-four have no definition in any stylesheet in that application**. The
+ * components render as unstyled browser defaults, and their tests pass because
+ * they assert the class *string* rather than any effect of it.
+ *
+ * So this is written rather than copied. Every value is a token from
+ * `tokens/`, published as a custom property by `ThemeProvider`, which is what
+ * makes these follow the theme without any component reading a value.
+ *
+ * Class names keep the source's spelling so a cut-over is a swap rather than a
+ * rewrite of every call site.
+ */
+
+.le-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp2);
+  padding: var(--sp2) var(--sp4);
+  border: 1px solid transparent;
+  border-radius: var(--rMd);
+  font-family: var(--fontUi);
+  font-size: var(--fsBody);
+  font-weight: var(--fwMed);
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--tFast) var(--easeOut),
+    border-color var(--tFast) var(--easeOut), opacity var(--tFast) var(--easeOut);
+}
+
+.le-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Focus is never removed, only restyled. A control that cannot be seen when
+   focused is unusable by keyboard, and `outline: none` with no replacement is
+   the single most common way a component library breaks that. */
+.le-btn:focus-visible,
+.le-input:focus-visible,
+.le-select:focus-visible,
+.le-switch:focus-visible,
+.le-checkbox:focus-visible {
+  outline: 2px solid var(--accentBright);
+  outline-offset: 2px;
+}
+
+.le-btn--primary {
+  background: var(--accent);
+  color: var(--onAccent);
+}
+
+.le-btn--primary:hover:not(:disabled) {
+  background: var(--accentBright);
+}
+
+.le-btn--ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.le-btn--ghost:hover:not(:disabled) {
+  background: var(--surface2);
+}
+
+.le-btn--danger {
+  background: var(--crit);
+  color: var(--onAccent);
+}
+
+.le-btn--sm {
+  padding: var(--sp1) var(--sp3);
+  font-size: var(--fsLabel);
+}
+
+.le-input,
+.le-select {
+  width: 100%;
+  padding: var(--sp2) var(--sp3);
+  background: var(--bg2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--rMd);
+  font-family: var(--fontUi);
+  font-size: var(--fsBody);
+}
+
+.le-input::placeholder {
+  color: var(--dim);
+}
+
+.le-input:disabled,
+.le-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.le-input--invalid {
+  border-color: var(--crit);
+}
+
+.le-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp1);
+}
+
+.le-field__label {
+  font-size: var(--fsLabel);
+  font-weight: var(--fwMed);
+  color: var(--text);
+}
+
+.le-field__hint {
+  font-size: var(--fsMicro);
+  color: var(--dim);
+}
+
+.le-field__hint--error {
+  color: var(--crit);
+}
+
+.le-switch {
+  appearance: none;
+  position: relative;
+  inline-size: 2.25rem;
+  block-size: 1.25rem;
+  background: var(--border2);
+  border-radius: var(--rPill);
+  cursor: pointer;
+  transition: background-color var(--tFast) var(--easeOut);
+}
+
+.le-switch::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0.125rem;
+  inset-inline-start: 0.125rem;
+  inline-size: 1rem;
+  block-size: 1rem;
+  background: var(--onAccent);
+  border-radius: 50%;
+  transition: transform var(--tFast) var(--easeSpring);
+}
+
+.le-switch:checked {
+  background: var(--accent);
+}
+
+.le-switch:checked::after {
+  transform: translateX(1rem);
+}
+
+.le-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.le-switch--sm {
+  inline-size: 1.75rem;
+  block-size: 1rem;
+}
+
+.le-switch--sm::after {
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+}
+
+.le-switch--sm:checked::after {
+  transform: translateX(0.75rem);
+}
+
+.le-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp2);
+}
+
+.le-checkbox {
+  accent-color: var(--accent);
+  inline-size: 1rem;
+  block-size: 1rem;
+  cursor: pointer;
+}
+
+.le-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--sp2);
+  border-radius: var(--rPill);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: var(--fsMicro);
+  font-weight: var(--fwMed);
+  line-height: 1.5rem;
+}
+
+.le-tag--ok { background: var(--ok); color: var(--onAccent); }
+.le-tag--warn { background: var(--warn); color: var(--canvasInk); }
+.le-tag--crit { background: var(--crit); color: var(--onAccent); }
+
+.le-kbd {
+  display: inline-block;
+  padding: 0 var(--sp1);
+  border: 1px solid var(--border);
+  border-block-end-width: 2px;
+  border-radius: var(--rSm);
+  background: var(--surface2);
+  font-family: var(--fontMono);
+  font-size: var(--fsMicro);
+}
+
+.le-dot {
+  display: inline-block;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.le-dot--ok { background: var(--ok); }
+.le-dot--warn { background: var(--warn); }
+.le-dot--crit { background: var(--crit); }
+
+.le-skeleton {
+  background: var(--surface2);
+  border-radius: var(--rSm);
+  animation: le-skeleton-pulse 1.4s var(--easeOut) infinite;
+}
+
+@keyframes le-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.le-spinner {
+  display: inline-block;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border: 2px solid var(--border2);
+  border-block-start-color: var(--accent);
+  border-radius: 50%;
+  animation: le-spin 0.7s linear infinite;
+}
+
+@keyframes le-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Motion is suppressed wholesale rather than per-animation: a reader who asked
+   for less of it did not mean "less of the ones somebody remembered". */
+@media (prefers-reduced-motion: reduce) {
+  .le-skeleton,
+  .le-spinner {
+    animation: none;
+  }
+
+  .le-btn,
+  .le-switch,
+  .le-switch::after {
+    transition: none;
+  }
+}
+
+.le-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--sp3);
+  padding: var(--sp3) var(--sp4);
+  border-radius: var(--rMd);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shFloat);
+  border-inline-start: 3px solid var(--dim);
+  font-size: var(--fsBody);
+}
+
+.le-toast--ok { border-inline-start-color: var(--ok); }
+.le-toast--warn { border-inline-start-color: var(--warn); }
+.le-toast--crit { border-inline-start-color: var(--crit); }
+
+.le-toast__close {
+  margin-inline-start: auto;
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: var(--fsBody);
+}

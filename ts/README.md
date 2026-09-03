@@ -504,3 +504,60 @@ render, and a frame is the finest granularity anything visual can use.
 `asError(value)` to an `Error`. One helper rather than an `instanceof Error`
 ternary at each call site, each copy free to disagree about what a thrown
 non-`Error` should say. The organization gate enforces it.
+
+## Controls
+
+Buttons, inputs, a select, a switch, a checkbox, a field wrapper, tags, keycaps,
+status dots, skeletons, a spinner and a toast.
+
+```tsx
+import { Field, TextInput, Button, Toast } from '@lore-eden/ui';
+
+<Field label="Email" error={problem}>
+  <TextInput />
+</Field>
+<Button variant="primary" onClick={save}>Save</Button>
+<Toast message="Saved" tone="ok" duration={4000} onDismiss={hide} />
+```
+
+### The source had no styling
+
+This is the one extraction where the plan's premise turned out to be wrong. The
+components were surveyed as "real, tested, Storybook-documented", and their
+behaviour is — but they emit BEM-ish class names and **thirty of the thirty-four
+have no definition in any stylesheet in that application.** They render as
+unstyled browser defaults.
+
+Their tests pass because they assert the class *string*:
+
+```tsx
+expect(btn).toHaveClass('btn--primary');   // a class nothing defines
+```
+
+So the behaviour came across and `controls.css` is new, written against the
+tokens in `tokens/` — which is what makes these follow the theme without any
+component reading a value. The tests here assert behaviour and accessibility;
+none of them asserts a class name.
+
+### What the components actually guarantee
+
+- **`Button` defaults its type to `button`.** HTML defaults it to `submit`, so a
+  button inside a form that omits it submits the form — a bug that presents as a
+  routing problem.
+- **`Field` wires its three parts together.** The control gets an id, the label
+  points at it, and the hint is referenced by `aria-describedby`, so the guidance
+  is read as part of the field. The source rendered the same three elements with
+  none of those attributes.
+- **`Switch` is `role="switch"`**, so a screen reader says "on/off" rather than
+  "checked".
+- **`Checkbox` links its label without needing an id**, by wrapping. The source
+  required one and silently produced an unlinked label without it.
+- **`StatusDot` is decoration unless given a label.** A bare coloured dot says
+  nothing to anything that does not render colour.
+- **`Toast` interrupts only for a problem** — `role="alert"` for warnings and
+  failures, `role="status"` otherwise — and its timer does not restart when its
+  parent re-renders.
+- **Focus is restyled, never removed.** `outline: none` with no replacement is
+  the commonest way a component library becomes unusable by keyboard.
+- **Everything forwards a ref**, including `Checkbox`, which keeps one of its own
+  for the indeterminate write.
