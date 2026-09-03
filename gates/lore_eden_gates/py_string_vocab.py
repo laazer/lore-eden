@@ -30,6 +30,8 @@ vocabularies that collide with ours need it — a GitHub check conclusion of
 to match.
 """
 
+from __future__ import annotations
+
 import ast
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple

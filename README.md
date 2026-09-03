@@ -173,7 +173,10 @@ while it happens, are in [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Requirements
 
 Python 3.10+. The gates are dependency-free and run under whatever `python3` a
-repo hands them; the TypeScript gate needs `npm install` in `gates/` once. The UI
+repo hands them, and refuse an older one by name — the version needed, the
+version found, and the interpreter it came from — rather than failing on an AST
+attribute that does not exist yet. The TypeScript gate needs `npm install` in
+`gates/` once. The UI
 kit needs `npm install` in `ts/`, and the harness `pip install -e "python[dev]"`.
 
 ## License
