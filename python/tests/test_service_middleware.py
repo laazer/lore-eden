@@ -159,10 +159,20 @@ class TestSecurityHeaders:
 
 
 class TestRateLimit:
+    """Driven by a stopped clock unless a test says otherwise.
+
+    Not tidiness. The window number is part of the counter key, so a suite that
+    used the real clock had its counter reset under it whenever three requests
+    happened to straddle a minute boundary — and the request that should have
+    been refused was allowed. It failed on CI at 19:38:00.2, roughly one run in
+    however many land there, and looked exactly like a flake.
+    """
+
     @staticmethod
     def app(counter, **kwargs) -> FastAPI:
         app = FastAPI()
         rules = kwargs.pop("rules", [RateLimitRule("/write", limit=2, window_seconds=60)])
+        kwargs.setdefault("now", lambda: 1_000_000.0)
         app.add_middleware(RateLimitMiddleware, rules=rules, count=counter, **kwargs)
 
         @app.post("/write")
@@ -194,6 +204,23 @@ class TestRateLimit:
         assert client.post("/write").status_code == 200
         assert client.post("/write").status_code == 200
         assert client.post("/write").status_code == 429
+
+    def test_the_window_boundary_resets_the_count(self) -> None:
+        """The behaviour that made the flake, pinned as behaviour.
+
+        A fixed-window limiter is *supposed* to forget at the boundary. Now that
+        the clock is injected the reset can be asserted deliberately instead of
+        being discovered by a test that happened to run at the wrong second.
+        """
+        clock = {"seconds": 1_000_000.0}
+        client = TestClient(self.app(self.counting(), now=lambda: clock["seconds"]))
+
+        assert client.post("/write").status_code == 200
+        assert client.post("/write").status_code == 200
+        assert client.post("/write").status_code == 429
+
+        clock["seconds"] += 60
+        assert client.post("/write").status_code == 200
 
     def test_the_refusal_says_when_to_come_back(self) -> None:
         client = TestClient(self.app(self.counting()))
