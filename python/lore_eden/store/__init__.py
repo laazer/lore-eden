@@ -11,6 +11,10 @@ so the interface has to exist before any schema does.
 - :mod:`lore_eden.store.memory` — a dict. Enough for one process doing one
   thing at a time, which is a real deployment and not only a test.
 - :mod:`lore_eden.store.sql` — SQLModel, behind the ``sql`` extra.
+- :mod:`lore_eden.store.migrations` — schema changes for that SQL store.
+  Deliberately **not** re-exported here: it imports SQLAlchemy, and this barrel
+  is the one a host without a database imports. Reach for it by its own path,
+  as the SQL store itself is reached.
 - :mod:`lore_eden.store.cursors` — converting between a stored cursor and the
   workflow's own, which is the one thing a host using both packages needs and
   had to write itself until an example proved it.

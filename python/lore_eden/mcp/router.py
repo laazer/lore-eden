@@ -25,6 +25,12 @@ def make_mcp_router(
 ) -> APIRouter:
     """A router serving ``server`` at the path it is mounted on.
 
+    **Mount it under a prefix.** Its routes are declared at ``""``, so
+    ``include_router(router)`` with no prefix raises ``Prefix and path cannot be
+    both empty`` — a FastAPI error that names neither this router nor the fix::
+
+        app.include_router(make_mcp_router(server), prefix="/mcp")
+
     ``context_dependency`` is an ordinary FastAPI dependency whose value is
     passed to every tool handler — a database session, a request-scoped service,
     whatever the host's tools need. Omit it for tools that need no context; they

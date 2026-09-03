@@ -31,7 +31,10 @@ async def summarize(document_id: str) -> dict:
     return {"summary": ...}
 
 app = FastAPI()
-app.include_router(make_mcp_router(McpServer(ServerInfo("my-host", "1.0"), registry)))
+app.include_router(
+    make_mcp_router(McpServer(ServerInfo("my-host", "1.0"), registry)),
+    prefix="/mcp",
+)
 ```
 
 Registering a name twice raises `DuplicateToolError` rather than replacing the
