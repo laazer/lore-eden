@@ -16,10 +16,12 @@ facts and a UI that renders them the same way is lying about one of them.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import uuid4
 
 from sqlmodel import Field, SQLModel
+
+from lore_eden.timestamps import utcnow
 
 #: Transports a CLI config understands. A stdio server is launched by the client
 #: itself; an http one is dialled.
@@ -33,8 +35,6 @@ POLICY_AUTO = "auto"
 TOOL_POLICIES = (POLICY_PROMPT, POLICY_AUTO)
 
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 class McpServerRecord(SQLModel, table=True):

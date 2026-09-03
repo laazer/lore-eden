@@ -26,10 +26,15 @@ prevents it writing a final status.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Mapping
 from uuid import uuid4
+
+#: Re-exported: `utcnow` is part of this module's published surface, and the
+#: store barrel lists it. It lives in `lore_eden.timestamps` so the three
+#: modules that once each defined it share one clock.
+from lore_eden.timestamps import as_utc, utcnow
 
 
 class RunStatus(str, Enum):
@@ -54,18 +59,6 @@ class RunStatus(str, Enum):
 DEFAULT_STALE_AFTER = timedelta(minutes=15)
 
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _aware(moment: datetime) -> datetime:
-    """Treat a naive timestamp as UTC.
-
-    SQLite hands back naive datetimes whatever went in, so a comparison against
-    an aware `now` raises. Coercing here rather than at each call site keeps the
-    staleness check from being the place that discovers it.
-    """
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
 
 
 @dataclass
@@ -97,7 +90,7 @@ class RunRecord:
 
     def duration(self, now: datetime | None = None) -> timedelta:
         end = self.ended_at or now or utcnow()
-        return _aware(end) - _aware(self.started_at)
+        return as_utc(end) - as_utc(self.started_at)
 
     def effective_status(
         self,
@@ -113,7 +106,7 @@ class RunRecord:
         if self.status is not RunStatus.RUNNING:
             return self.status
         moment = now or utcnow()
-        if moment - _aware(self.heartbeat_at) > stale_after:
+        if moment - as_utc(self.heartbeat_at) > stale_after:
             return RunStatus.ABANDONED
         return RunStatus.RUNNING
 

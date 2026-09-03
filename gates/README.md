@@ -83,12 +83,23 @@ Both stay **off until configured**, in `.lore-eden-gates.json` at the repo root:
 ```
 
 - **`mid_dot_helper`** — enables the rule against hand-rolling several `" · "`
-  labels in one function.
+  labels in one function. The Python package ships a helper that satisfies it,
+  so a repo already depending on `lore_eden` can name
+  `"lore_eden.dot_line.Dot / mid_dot"` rather than writing its own; see
+  *Log lines a person can read* in `python/README.md`.
 - **`git_subprocess_helper`** / **`_path`** — enables the git-routing rule.
   `GIT_DIR` overrides `cwd`, so a `subprocess.run(["git", ...], cwd=repo)` that
   passes the ambient environment through operates on whatever repository the
   parent was bound to. The `_path` exempts the wrapper itself, which is the one
-  file allowed to build a raw git argv.
+  file allowed to build a raw git argv. `lore_eden.git.run_git` is a ready
+  implementation, which is what this repo points itself at.
+
+These two rules and the helpers that satisfy them ship in the same repository
+but install by different routes — the gates by filesystem path, the package by
+pip — so neither imports the other, and a repo may adopt the gates without the
+package. Naming a helper you do not have is the one configuration that makes a
+rule worse than leaving it off: every finding would name a module the reader
+cannot open.
 
 An absent file means no house rules. A file that exists but is malformed, or
 carries an unknown key, **fails the gate** rather than falling back to defaults —

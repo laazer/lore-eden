@@ -745,3 +745,95 @@ The gate's var list is duplicated here, because the gates are stdlib-only and
 installed by filesystem path while this package is installed by pip — neither
 can import the other. A test asserts the two lists agree, so the duplication is
 guarded rather than merely regretted.
+
+## Timestamps
+
+`lore_eden.timestamps` owns one clock and one conversion:
+
+```python
+from lore_eden.timestamps import as_utc, iso_utc, utcnow
+
+record.started_at = utcnow()            # aware, and the same clock the store uses
+iso_utc(row.started_at)                 # '2026-08-08T14:19:57.465660+00:00'
+```
+
+The reason this is a module rather than two inline calls: a plain `DateTime`
+column on SQLite drops the zone on write and returns a **naive** value on read,
+so `row.started_at.isoformat()` emits no offset — and ECMAScript parses an
+offset-less date-time as *local* time. A UI then shows a UTC instant as the
+viewer's wall clock, wrong by their whole UTC offset, on every timestamp, with
+nothing visibly broken.
+
+`as_utc` tags a naive value as the UTC it already is rather than shifting it,
+which is correct only where every write went through `utcnow()`. A store that
+writes local time needs its own conversion, not this one.
+
+`utcnow()` is also the replacement for `datetime.utcnow()`, which returns a
+naive value and is deprecated from 3.12 — the two read alike and differ in
+exactly the way this module exists to prevent.
+
+
+## Log lines a person can read
+
+A streaming harness emits a lot of one-line labels, and written as f-strings
+they drift: a separator left stranded next to an absent segment, a `None`
+rendered as the four characters `None`, a different separator in the next
+module. `lore_eden.dot_line` composes them instead.
+
+```python
+from lore_eden.dot_line import Dot, SYS, TOOL, kv_space, shell
+
+str(Dot("session init") / model)        # 'session init · haiku'
+str(Dot("session init") / None)         # 'session init'   — no trailing separator
+SYS / "codex thread" / thread_id        # LogLine('SYS', 'codex thread · abc123')
+TOOL / shell(command) / kv_space(exit_=0, ms=812)
+```
+
+An empty or `None` segment contributes nothing, which is what makes
+`Dot(label) / optional_detail` safe to write unconditionally — no branch at the
+call site, and no way to leave a dangling `·`. `0` and `False` are kept, because
+`retries=0` is a fact worth printing.
+
+`Tag` binds a channel and yields a `LogLine` that keeps accepting `/`. The
+shipped channels are `SYS` (harness narration), `OUT` (agent stdout),
+`TOOL`/`CMD`, `RUN`, and `OK`/`FAIL`/`ERR`; `Tag("AUDIT")` makes another. A
+`LogLine` iterates and compares equal to a `(tag, text)` tuple, so a formatter
+that already speaks in tuples takes one unchanged:
+
+```python
+tag, text = SYS / "turn started" / model
+assert (SYS / "ready") == ("SYS", "ready")
+```
+
+Two helpers exist because their absence reads as a bug rather than as no data:
+`kv("tokens", None)` gives `tokens=—`, not `tokens=`, and `shell(None)` gives
+`$ command`, not a bare `$`. `OUT.maybe(raw)` returns `None` for blank output
+instead of emitting an empty line — agent stdout arrives as a lone newline often
+enough to matter.
+
+A host's own label type can compose on equal terms by implementing
+`display_parts()`, the `DisplaySegments` protocol:
+
+```python
+class TicketLabel:
+    def display_parts(self) -> tuple[str, ...]:
+        return (f"#{self.ticket_id}", self.title)
+
+str(Dot("stage") / label)   # 'stage · #546 · extract the harness'
+```
+
+That protocol is also why this is not an internal type switch: a closed
+`isinstance` check on `Dot`/`LogLine` could not have let a foreign type join.
+
+### Turning the gate's mid-dot rule on
+
+The `py-organization` gate flags a function that hand-rolls three or more
+`f"… · …"` labels, and it stays **off until a repo names its helper** — a gate
+cannot invent a module the reader does not have. Point it at this one in
+`.lore-eden-gates.json`:
+
+```json
+{ "mid_dot_helper": "lore_eden.dot_line.Dot / mid_dot" }
+```
+
+This repo sets exactly that, so the rule now applies to `lore_eden` itself.
