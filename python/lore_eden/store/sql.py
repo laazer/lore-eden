@@ -27,10 +27,12 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Mapping, Sequence
 
-from sqlalchemy import event
+from sqlalchemy import UniqueConstraint, event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, select
 
+from lore_eden.ledger import EntityType, LedgerEvent, LedgerSequenceConflict
 from lore_eden.store.records import (
     CursorRecord,
     CycleRecord,
@@ -673,3 +675,126 @@ class SqlRelationStore:
                 RelationRecord(row.item_id, row.related_id, RelationKind(row.kind))
             )
         return found
+
+
+class LedgerEventRow(SQLModel, table=True):
+    """One recorded event.
+
+    The uniqueness constraint on ``(entity_id, entity_type, sequence_number)``
+    is what makes concurrent appends safe on a backend that cannot lock: two
+    racers compute the same sequence number, one insert wins, and the loser gets
+    an IntegrityError it can retry from. It is the guarantee, not a tidiness
+    index — dropping it would leave a ledger that renumbers itself under load.
+    """
+
+    __tablename__ = "lore_eden_ledger_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_id", "entity_type", "sequence_number", name="uq_lore_eden_ledger_sequence"
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    event_type: str = ""
+    entity_id: str = Field(index=True)
+    entity_type: str = Field(index=True)
+    actor: str = ""
+    payload_json: str = "{}"
+    sequence_number: int = 0
+    checksum: str = ""
+    # NULL rather than "" for an absent key, because the uniqueness constraint
+    # has to permit any number of events that carry no key at all, and SQL
+    # treats NULLs as distinct while it treats empty strings as equal.
+    idempotency_key: str | None = Field(default=None, unique=True, index=True)
+    occurred_at: datetime = Field(default_factory=utcnow)
+
+
+def _to_ledger_event(row: LedgerEventRow) -> LedgerEvent:
+    return LedgerEvent(
+        event_type=row.event_type,
+        entity_id=row.entity_id,
+        entity_type=row.entity_type,
+        payload=json.loads(row.payload_json),
+        sequence_number=row.sequence_number,
+        checksum=row.checksum,
+        actor=row.actor,
+        idempotency_key=row.idempotency_key or "",
+        occurred_at=row.occurred_at,
+    )
+
+
+class SqlLedgerStore:
+    """The ledger on SQLModel.
+
+    No update and no delete, matching the protocol. A host that wants to remove
+    history has to go around this class, which is the point: the code cannot be
+    read as offering it.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def last_event(self, entity_id: str, entity_type: EntityType) -> LedgerEvent | None:
+        # `with_for_update` serializes concurrent appends on a backend that has
+        # row locks. SQLite has none and SQLAlchemy renders nothing for it there,
+        # which is why the uniqueness constraint and the caller's retry are the
+        # real guarantee rather than a belt to this braces.
+        statement = (
+            select(LedgerEventRow)
+            .where(
+                LedgerEventRow.entity_id == entity_id,
+                LedgerEventRow.entity_type == entity_type,
+            )
+            .order_by(LedgerEventRow.sequence_number.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        row = self.session.exec(statement).first()
+        return _to_ledger_event(row) if row is not None else None
+
+    def append_event(self, event: LedgerEvent) -> LedgerEvent:
+        row = LedgerEventRow(
+            event_type=str(event.event_type),
+            entity_id=event.entity_id,
+            entity_type=str(event.entity_type),
+            actor=event.actor,
+            payload_json=json.dumps(dict(event.payload), sort_keys=True),
+            sequence_number=event.sequence_number,
+            checksum=event.checksum,
+            idempotency_key=event.idempotency_key or None,
+            occurred_at=event.occurred_at,
+        )
+        self.session.add(row)
+        try:
+            self.session.commit()
+        except IntegrityError as exc:
+            # The sequence was taken between this caller's read and its write,
+            # or the key was. Roll back so the session is usable, and say which
+            # kind of refusal this was rather than leaking the driver's message.
+            self.session.rollback()
+            raise LedgerSequenceConflict(
+                f"sequence {event.sequence_number} is already recorded for "
+                f"{event.entity_type} '{event.entity_id}'"
+            ) from exc
+        self.session.refresh(row)
+        return _to_ledger_event(row)
+
+    def events_for(self, entity_id: str, entity_type: EntityType) -> Sequence[LedgerEvent]:
+        statement = (
+            select(LedgerEventRow)
+            .where(
+                LedgerEventRow.entity_id == entity_id,
+                LedgerEventRow.entity_type == entity_type,
+            )
+            .order_by(LedgerEventRow.sequence_number)
+        )
+        return [_to_ledger_event(row) for row in self.session.exec(statement).all()]
+
+    def event_by_idempotency_key(self, idempotency_key: str) -> LedgerEvent | None:
+        if not idempotency_key:
+            return None
+        statement = select(LedgerEventRow).where(
+            LedgerEventRow.idempotency_key == idempotency_key
+        )
+        row = self.session.exec(statement).first()
+        return _to_ledger_event(row) if row is not None else None

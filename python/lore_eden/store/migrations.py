@@ -115,12 +115,29 @@ def _0004_create_work_item_tables(session: Session) -> None:
     )
 
 
+def _0005_create_ledger_table(session: Session) -> None:
+    """The append-only ledger's one table, with its sequence constraint.
+
+    Guarded by ``create_all``, which creates only what is missing. The
+    uniqueness constraint arrives with the table rather than as a later
+    migration on purpose: a ledger that ran for a while without it may already
+    hold the duplicate rows the constraint would refuse, and there is no
+    honest repair for that — the rows cannot be deleted.
+    """
+    from lore_eden.store.sql import LedgerEventRow  # noqa: F401
+
+    LedgerEventRow.metadata.create_all(
+        session.get_bind(), tables=[LedgerEventRow.__table__]
+    )
+
+
 #: In order. Append; never edit an entry that has shipped.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration("0001", "Create the cursor and run tables", _0001_create_cursors_and_runs),
     Migration("0002", "Index run heartbeats for the stale sweep", _0002_index_run_heartbeat),
     Migration("0003", "Runs carry an attempt number", _0003_runs_carry_an_attempt),
     Migration("0004", "Create the work-item tables", _0004_create_work_item_tables),
+    Migration("0005", "Create the ledger table", _0005_create_ledger_table),
 )
 
 
