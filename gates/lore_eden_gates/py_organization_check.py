@@ -154,6 +154,53 @@ def _is_ast_node_type(target: str) -> bool:
     return target.startswith("ast.")
 
 
+def _runtime_checkable_protocols(tree: ast.AST) -> Set[str]:
+    """Names of ``@runtime_checkable`` Protocol classes defined in this file.
+
+    ``isinstance(x, SomeProtocol)`` is a structural check against a declared
+    contract, not a switch on a concrete type — and it is one of the two fixes
+    this rule's own message recommends. Flagging it made the rule contradict
+    itself: the author who took the advice got the same finding back, with the
+    waiver comment as the only possible response.
+
+    Same-file only, and deliberately so. A protocol imported from elsewhere
+    cannot be recognised from one file's AST, and guessing from the name
+    (anything ending in ``Protocol``, say) would let a real type switch through
+    on a badly named class. For those, the waiver comment is still the answer.
+    """
+    protocols: Set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        decorated = any(
+            _decorator_name(decorator) == "runtime_checkable" for decorator in node.decorator_list
+        )
+        subclasses_protocol = any(_base_name(base) == "Protocol" for base in node.bases)
+        if decorated and subclasses_protocol:
+            protocols.add(node.name)
+    return protocols
+
+
+def _decorator_name(decorator: ast.expr) -> str:
+    """Trailing name of a decorator, so ``typing.runtime_checkable`` matches too."""
+    if isinstance(decorator, ast.Attribute):
+        return decorator.attr
+    if isinstance(decorator, ast.Name):
+        return decorator.id
+    return ""
+
+
+def _base_name(base: ast.expr) -> str:
+    """Trailing name of a base class, so ``typing.Protocol`` matches too."""
+    if isinstance(base, ast.Attribute):
+        return base.attr
+    if isinstance(base, ast.Name):
+        return base.id
+    if isinstance(base, ast.Subscript):
+        return _base_name(base.value)
+    return ""
+
+
 def _isinstance_targets(node: ast.Call) -> List[str]:
     if len(node.args) < 2:
         return []
@@ -175,6 +222,11 @@ def isinstance_errors(
     inspect foreign objects (a third-party payload before it can be modelled, an
     ``__eq__``, a ``TypeDecorator``).
 
+    ``isinstance(x, SomeProtocol)`` against a ``@runtime_checkable`` Protocol
+    declared in the same file is exempt without a waiver — see
+    :func:`_runtime_checkable_protocols`. It is a structural check against a
+    declared contract, and this rule's own message recommends it.
+
     ``isinstance(node, ast.Something)`` is exempt without a waiver. Both of this
     rule's remediations are unactionable against the stdlib AST: you cannot
     model an ``ast.Call`` with Pydantic, and you cannot add a method to it to
@@ -184,6 +236,7 @@ def isinstance_errors(
     """
     if _is_test_path(py_file):
         return []
+    local_protocols = _runtime_checkable_protocols(tree)
     errors: List[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -197,6 +250,8 @@ def isinstance_errors(
             continue
         targets = _isinstance_targets(node)
         if targets and all(_is_ast_node_type(target) for target in targets):
+            continue
+        if targets and all(target in local_protocols for target in targets):
             continue
         shown = ", ".join(targets) or "?"
         if any(t in _PAYLOAD_SHAPE_TYPES for t in targets):

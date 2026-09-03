@@ -36,10 +36,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Any
 from uuid import uuid4
+
+from lore_eden.timestamps import utcnow
 
 
 class ApprovalKind(str, Enum):
@@ -64,8 +66,6 @@ class ApprovalStatus(str, Enum):
 AUTOMATION = "automation"
 
 
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 @dataclass

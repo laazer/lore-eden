@@ -105,9 +105,6 @@ class ToolRegistry:
 
         return decorate
 
-    def names(self) -> list[str]:
-        return list(self._handlers)
-
     def definitions(self) -> list[dict[str, Any]]:
         """The ``tools/list`` payload."""
         return [definition.as_payload() for definition in self._definitions.values()]

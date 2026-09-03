@@ -105,3 +105,112 @@ def test_getattr_waiver_is_honoured(nested_repo):
     result = run(nested_repo)
 
     assert result.returncode == 0, result.stdout
+
+
+LOCAL_PROTOCOL_DISPATCH = '''"""Dispatches on a protocol declared right here."""
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Segments(Protocol):
+    def parts(self) -> tuple[str, ...]:
+        ...
+
+
+def render(value: object) -> str:
+    if isinstance(value, Segments):
+        return " · ".join(value.parts())
+    return str(value)
+'''
+
+QUALIFIED_PROTOCOL_DISPATCH = LOCAL_PROTOCOL_DISPATCH.replace(
+    "from typing import Protocol, runtime_checkable", "import typing"
+).replace("@runtime_checkable", "@typing.runtime_checkable").replace(
+    "class Segments(Protocol):", "class Segments(typing.Protocol):"
+)
+
+UNCHECKABLE_PROTOCOL_DISPATCH = LOCAL_PROTOCOL_DISPATCH.replace("@runtime_checkable\n", "")
+
+IMPORTED_PROTOCOL_DISPATCH = '''"""Dispatches on a protocol imported from elsewhere."""
+
+from myapp.contracts import Segments
+
+
+def render(value: object) -> str:
+    if isinstance(value, Segments):
+        return " · ".join(value.parts())
+    return str(value)
+'''
+
+PLAIN_CLASS_DISPATCH = '''"""A type switch on a concrete class we own — the rule's actual target."""
+
+
+class Segments:
+    def parts(self) -> tuple[str, ...]:
+        return ()
+
+
+def render(value: object) -> str:
+    if isinstance(value, Segments):
+        return " · ".join(value.parts())
+    return str(value)
+'''
+
+
+def test_a_locally_declared_runtime_checkable_protocol_is_exempt(nested_repo):
+    """The rule's own message recommends `a typing.Protocol`, then flagged it.
+
+    Taking the advice returned the same finding, leaving the waiver comment as
+    the only possible response — so the advice was unfollowable.
+    """
+    nested_repo.write("server/myapp/render.py", LOCAL_PROTOCOL_DISPATCH)
+
+    result = run(nested_repo)
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_the_exemption_sees_a_typing_qualified_protocol(nested_repo):
+    """`@typing.runtime_checkable` on `typing.Protocol` is the same declaration."""
+    nested_repo.write("server/myapp/render.py", QUALIFIED_PROTOCOL_DISPATCH)
+
+    result = run(nested_repo)
+
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_protocol_that_is_not_runtime_checkable_is_still_flagged(nested_repo):
+    """Without the decorator that `isinstance` raises TypeError at runtime.
+
+    Exempting it would have the gate bless a line that cannot execute.
+    """
+    nested_repo.write("server/myapp/render.py", UNCHECKABLE_PROTOCOL_DISPATCH)
+
+    result = run(nested_repo)
+
+    assert result.returncode == 1, result.stdout
+    assert "isinstance" in result.stdout
+
+
+def test_a_protocol_imported_from_another_module_is_still_flagged(nested_repo):
+    """One file's AST cannot tell a protocol from a class, and guessing by name
+    would let a real type switch through on a badly named class. The waiver
+    comment stays the answer for these — a known, documented limit."""
+    nested_repo.write("server/myapp/render.py", IMPORTED_PROTOCOL_DISPATCH)
+
+    result = run(nested_repo)
+
+    assert result.returncode == 1, result.stdout
+    assert "isinstance" in result.stdout
+
+
+def test_a_type_switch_on_a_concrete_class_is_still_flagged(nested_repo):
+    """The exemption must not have blunted the rule: same call shape, same
+    method name, no protocol — and this is what the rule is for."""
+    nested_repo.write("server/myapp/render.py", PLAIN_CLASS_DISPATCH)
+
+    result = run(nested_repo)
+
+    assert result.returncode == 1, result.stdout
+    assert "isinstance" in result.stdout

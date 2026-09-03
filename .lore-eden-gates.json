@@ -1,4 +1,5 @@
 {
+  "mid_dot_helper": "lore_eden.dot_line.Dot / mid_dot",
   "git_subprocess_helper": "lore_eden.git.run_git",
   "git_subprocess_helper_path": "python/lore_eden/git.py"
 }
