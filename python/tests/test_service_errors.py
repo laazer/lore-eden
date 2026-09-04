@@ -185,3 +185,63 @@ class TestPagination:
     def test_it_is_generic(self) -> None:
         page: Page[str] = paginate(["a"], total=1, params=PaginationParams())
         assert page.items == ["a"]
+
+
+class TestWhatTheReconciliationChanged:
+    """The pagination modules loremaker carries were compared against this one,
+    and these are the properties that decided it.
+
+    Each test pins a behaviour the alternative got wrong, so "ours won" is a
+    claim with something behind it rather than a preference for the incumbent.
+    """
+
+    def test_ordering_came_across_because_it_was_missing_here(self) -> None:
+        """loremaker's query params carry `order_by`/`order_dir` and this module
+        had neither. Almost no paged API is useful without them."""
+        from lore_eden.service.pagination import SortDirection
+
+        params = PaginationParams(order_by="updated_at", order_dir=SortDirection.ASCENDING)
+
+        assert params.order_by == "updated_at"
+        assert params.order_dir is SortDirection.ASCENDING
+
+    def test_the_direction_default_matches_what_a_list_view_wants(self) -> None:
+        assert PaginationParams().order_dir.value == "desc"
+
+    def test_a_misspelled_direction_is_refused_rather_than_sorted_backwards(self) -> None:
+        """Why the direction is an enum and the field name is not: two values,
+        the same in every host, and `dsec` typed as a string sorts the other
+        way in silence."""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PaginationParams(order_dir="dsec")
+
+    def test_size_is_what_was_asked_for_not_what_came_back(self) -> None:
+        """loremaker's response reports `page_size: len(self.data)`, so a short
+        final page tells the client its page size shrank — and a client deriving
+        a page count from it gets a different answer on the last page."""
+        final = paginate(["only-one-left"], total=41, params=PaginationParams(page=3, size=20))
+
+        assert final.size == 20
+        assert len(final.items) == 1
+        assert final.pages == 3
+
+    def test_page_one_has_no_previous(self) -> None:
+        """The boundary 0-based paging gets wrong. loremaker's own
+        `get_previous_link` special-cases `page_number == 1` and reaches for an
+        attribute the class never sets, so paging back to the first page raises
+        AttributeError."""
+        first = paginate([1], total=100, params=PaginationParams(page=1, size=20))
+
+        assert first.has_previous is False
+        assert first.page == 1
+        assert PaginationParams(page=1).offset == 0
+
+    def test_the_page_count_cannot_disagree_with_the_total(self) -> None:
+        """Derived rather than carried. loremaker's `DataPage` carries
+        `page_count` beside three token fields nothing populates."""
+        page = paginate([], total=45, params=PaginationParams(page=1, size=20))
+
+        assert page.pages == 3
