@@ -51,3 +51,18 @@ pre-commit:
       glob: "{*.py,**/*.py}"
       run: python3 gates/lore_eden_gates/pylint_diff_filter.py {staged_files}
     # <<< lore-eden gate guardrails (managed) <<<
+
+# Sequential on purpose: both commands drive pytest, and two suites competing for
+# the same cores is slower than running them in turn — and a pre-push people wait
+# for is the only kind that stays installed.
+pre-push:
+  parallel: false
+  commands:
+    python-tests:
+      name: Python tests (only those the pushed commits can reach)
+      glob: "python/**/*.py"
+      run: bash .lefthook/scripts/python-tests.sh
+    gates-tests:
+      name: Gate library tests (whole suite)
+      glob: "gates/**/*.py"
+      run: bash .lefthook/scripts/gates-tests.sh
