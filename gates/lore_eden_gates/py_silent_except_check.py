@@ -47,9 +47,9 @@ from __future__ import annotations
 
 import ast
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
 
 _LEFTHOOK_SCRIPTS = Path(__file__).resolve().parent
 if str(_LEFTHOOK_SCRIPTS) not in sys.path:
@@ -168,7 +168,7 @@ def _line_waives(lines: list[str], lineno: int) -> bool:
     return False
 
 
-def violations_in(path: Path, *, repo: Optional[Path]) -> list[tuple[int, str]]:
+def violations_in(path: Path, *, repo: Path | None) -> list[tuple[int, str]]:
     """(line, what-was-caught) for every silent broad catch in the file.
 
     ``repo`` is the boundary `read_source_text` grades against, required and

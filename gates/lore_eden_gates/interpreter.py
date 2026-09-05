@@ -36,7 +36,8 @@ reject.
 from __future__ import annotations
 
 import sys
-from typing import Optional, Sequence, TextIO, Tuple
+from collections.abc import Sequence
+from typing import TextIO
 
 MINIMUM_PYTHON = (3, 10)
 
@@ -48,7 +49,7 @@ EXIT_UNSUPPORTED_INTERPRETER = 1
 
 
 def unsupported_interpreter_message(
-    minimum: Tuple[int, int],
+    minimum: tuple[int, int],
     actual: Sequence[int],
     executable: str,
 ) -> str:
@@ -56,26 +57,24 @@ def unsupported_interpreter_message(
     needed = ".".join(str(part) for part in minimum)
     found = ".".join(str(part) for part in actual)
     return (
-        "lore-eden gates: these checks need Python {needed} or newer.\n"
-        "  found:  Python {found} at {executable}\n"
-        "  needed: Python {needed}+\n"
+        f"lore-eden gates: these checks need Python {needed} or newer.\n"
+        f"  found:  Python {found} at {executable}\n"
+        f"  needed: Python {needed}+\n"
         "\n"
         "The gates read `match` statements through AST node types that do not\n"
-        "exist before {needed}.\n"
+        f"exist before {needed}.\n"
         "\n"
         "The lefthook block installed by install-workspace-hooks.sh runs these\n"
         "gates with a bare `python3`, so this is whichever `python3` is first on\n"
-        "PATH. Put a {needed}+ interpreter ahead of it and commit again.".format(
-            needed=needed, found=found, executable=executable
-        )
+        f"PATH. Put a {needed}+ interpreter ahead of it and commit again."
     )
 
 
 def require_python(
-    minimum: Tuple[int, int] = MINIMUM_PYTHON,
-    actual: Optional[Sequence[int]] = None,
-    executable: Optional[str] = None,
-    stream: Optional[TextIO] = None,
+    minimum: tuple[int, int] = MINIMUM_PYTHON,
+    actual: Sequence[int] | None = None,
+    executable: str | None = None,
+    stream: TextIO | None = None,
 ) -> None:
     """Stop with a readable message when the running interpreter is too old.
 

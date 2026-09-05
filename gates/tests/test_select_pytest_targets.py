@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from select_pytest_targets import Layout, build_graph, full_suite_reason, select
 
 NESTED = Layout(package="myapp", project_prefix="server", ignore_prefixes=("client",))

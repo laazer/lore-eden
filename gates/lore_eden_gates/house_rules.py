@@ -40,7 +40,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 CONFIG_FILENAME = ".lore-eden-gates.json"
 
@@ -87,7 +86,7 @@ _FIELDS = {
 }
 
 
-def load_house_rules(repo: Optional[Path]) -> HouseRules:
+def load_house_rules(repo: Path | None) -> HouseRules:
     """Read ``.lore-eden-gates.json`` from ``repo``, or return the empty rules.
 
     Raises :class:`HouseRulesError` when the file exists but is unparseable,

@@ -28,11 +28,23 @@ Usage:
     py_git_subprocess_check.py --repo PATH --scope worktree|staged|branch
 """
 
+# Deferred annotations, so the PEP 604 spellings below (`X | None`) are never
+# evaluated at definition time. On 3.9 an evaluated one raises TypeError, and
+# these files run under whatever `python3` a consuming workspace hands them.
+#
+# Not load-bearing *today*, and that was checked rather than assumed: removing
+# this import and running under 3.9.7 still reports the version cleanly, because
+# `require_python()` exits above these definitions before any of them is reached.
+# It is here so that remaining true does not depend on the guard staying above
+# them — a later import moved one line up would otherwise turn a clear message
+# back into the AttributeError this whole guard replaced.
+from __future__ import annotations
+
 import ast
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
 
 _GATE_SCRIPTS = Path(__file__).resolve().parent
 if str(_GATE_SCRIPTS) not in sys.path:
@@ -155,7 +167,7 @@ def _has_explicit_env(node: ast.Call) -> bool:
     return any(kw.arg == "env" for kw in node.keywords)
 
 
-def violations_in(path: Path, *, repo: Optional[Path]) -> list[tuple[int, str, str]]:
+def violations_in(path: Path, *, repo: Path | None) -> list[tuple[int, str, str]]:
     source = read_source_text(path, repo=repo)
     try:
         tree = ast.parse(source)

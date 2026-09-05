@@ -27,8 +27,6 @@ import argparse
 from pathlib import Path
 
 from fake_bridge import make_fake_bridge_factory
-from sqlmodel import Session, SQLModel, create_engine
-
 from lore_eden.agents import PermissionDecision, TemplatePrompt
 from lore_eden.runner import AgentBinding, AgentRegistry, StageRunner
 from lore_eden.store import (
@@ -42,6 +40,7 @@ from lore_eden.store import (
 from lore_eden.store.migrations import run_migrations
 from lore_eden.store.sql import SqlCursorStore, SqlRunStore, enforce_sqlite_foreign_keys
 from lore_eden.workflow import GatesConfig, WorkflowStageDef
+from sqlmodel import Session, SQLModel, create_engine
 
 STAGES = [
     WorkflowStageDef(key="draft", name="Draft", agent_id="writer", order=1),

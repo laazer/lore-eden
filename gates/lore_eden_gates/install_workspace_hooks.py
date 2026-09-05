@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 
 BEGIN_MARKER = "# >>> lore-eden gate guardrails (managed) >>>"
 END_MARKER = "# <<< lore-eden gate guardrails (managed) <<<"
@@ -59,7 +59,7 @@ TS_GLOB = "{*.ts,*.tsx,**/*.ts,**/*.tsx}"
 #: installed — git-subprocess routing and defensive normalization — are here:
 #: both enforce universal rules, and leaving them out meant they only ever ran
 #: in the repo they were written in.
-MANAGED_GATES: Tuple[ManagedGate, ...] = (
+MANAGED_GATES: tuple[ManagedGate, ...] = (
     ManagedGate(
         f"{COMMAND_PREFIX}-py-organization",
         "Python organization guardrails",
@@ -124,7 +124,7 @@ MANAGED_GATES: Tuple[ManagedGate, ...] = (
 MANAGED_COMMAND_NAMES = tuple(gate.name for gate in MANAGED_GATES)
 
 
-def script_path(gates_root: Path, repo_root: Optional[Path], script: str) -> str:
+def script_path(gates_root: Path, repo_root: Path | None, script: str) -> str:
     """How the block should spell the path to one gate script.
 
     Absolute when the gates live outside the repo being installed into — which
@@ -146,7 +146,7 @@ def script_path(gates_root: Path, repo_root: Optional[Path], script: str) -> str
         return str(full)
 
 
-def render_block(gates_root: Path, indent: str, repo_root: Optional[Path] = None) -> List[str]:
+def render_block(gates_root: Path, indent: str, repo_root: Path | None = None) -> list[str]:
     """The managed block, pointing at the gate scripts in ``gates_root``."""
     body = [
         BEGIN_MARKER,
@@ -168,7 +168,7 @@ def render_block(gates_root: Path, indent: str, repo_root: Optional[Path] = None
     return [f"{indent}{line}" if line.strip() else line for line in body]
 
 
-def colliding_commands(lines: List[str]) -> List[str]:
+def colliding_commands(lines: list[str]) -> list[str]:
     """Managed names already defined outside the managed block.
 
     Namespacing makes this near-impossible, but writing a duplicate key into
@@ -183,7 +183,7 @@ def colliding_commands(lines: List[str]) -> List[str]:
     return [name for name in MANAGED_COMMAND_NAMES if name in defined]
 
 
-def find_commands_map(lines: List[str]) -> Optional[Tuple[int, str]]:
+def find_commands_map(lines: list[str]) -> tuple[int, str] | None:
     """Return (line index after `commands:`, indent for its entries).
 
     The entry indent is read from the first existing entry rather than assumed,
@@ -218,7 +218,7 @@ def find_commands_map(lines: List[str]) -> Optional[Tuple[int, str]]:
     return commands, entry_indent
 
 
-def strip_managed_block(lines: List[str]) -> Tuple[List[str], List[str]]:
+def strip_managed_block(lines: list[str]) -> tuple[list[str], list[str]]:
     """Split out the existing managed block, if any. Returns (rest, block).
 
     Legacy markers count as "the managed block" too, so installing over a repo
@@ -229,8 +229,8 @@ def strip_managed_block(lines: List[str]) -> Tuple[List[str], List[str]]:
     begins = {begin for begin, _ in marker_pairs}
     ends = {end for _, end in marker_pairs}
 
-    out: List[str] = []
-    block: List[str] = []
+    out: list[str] = []
+    block: list[str] = []
     inside = False
     for line in lines:
         if line.strip() in begins:
@@ -245,7 +245,7 @@ def strip_managed_block(lines: List[str]) -> Tuple[List[str], List[str]]:
     return out, block
 
 
-def end_of_commands_map(lines: List[str], commands_index: int, entry_indent: str) -> int:
+def end_of_commands_map(lines: list[str], commands_index: int, entry_indent: str) -> int:
     """First line after the commands map ends."""
     map_indent = len(lines[commands_index]) - len(lines[commands_index].lstrip())
     end = len(lines)

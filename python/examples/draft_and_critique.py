@@ -29,7 +29,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from fake_bridge import make_fake_bridge_factory
-
 from lore_eden.agents import PermissionDecision, TemplatePrompt
 from lore_eden.mcp import McpServer, ServerInfo, ToolRegistry
 from lore_eden.runner import AgentBinding, AgentRegistry, StageRunner

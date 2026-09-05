@@ -13,6 +13,18 @@ nested (mirroring ``ruff_complexity_diff_filter.py``). Omit it when the Python
 project is the repo root.
 """
 
+# Deferred annotations, so the PEP 604 spellings below (`X | None`) are never
+# evaluated at definition time. On 3.9 an evaluated one raises TypeError, and
+# these files run under whatever `python3` a consuming workspace hands them.
+#
+# Not load-bearing *today*, and that was checked rather than assumed: removing
+# this import and running under 3.9.7 still reports the version cleanly, because
+# `require_python()` exits above these definitions before any of them is reached.
+# It is here so that remaining true does not depend on the guard staying above
+# them — a later import moved one line up would otherwise turn a clear message
+# back into the AttributeError this whole guard replaced.
+from __future__ import annotations
+
 import ast
 import json
 import re
@@ -20,7 +32,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
 
 _LEFTHOOK_SCRIPTS = Path(__file__).resolve().parent
 if str(_LEFTHOOK_SCRIPTS) not in sys.path:
@@ -32,7 +43,7 @@ from interpreter import require_python  # noqa: E402 - sys.path is set up just a
 # needed to *import* them, so a check that ran later would never run at all.
 require_python()
 
-from precommit_git_diff import (
+from precommit_git_diff import (  # noqa: E402 - deliberately after require_python(), see interpreter.py
     UnexaminableError,
     git_diff_cached,
     git_repo_root,
@@ -44,7 +55,7 @@ from precommit_git_diff import (
 _COUNT_RE = re.compile(r"\((\d+)/(\d+)\)")
 
 
-def _function_span(py_file: Path, lineno: int) -> Tuple[int, int]:
+def _function_span(py_file: Path, lineno: int) -> tuple[int, int]:
     try:
         tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
     except (SyntaxError, UnicodeDecodeError, OSError):
@@ -55,7 +66,7 @@ def _function_span(py_file: Path, lineno: int) -> Tuple[int, int]:
     return (lineno, lineno)
 
 
-def _statement_count(message: str) -> Optional[int]:
+def _statement_count(message: str) -> int | None:
     m = _COUNT_RE.search(message)
     return int(m.group(1)) if m else None
 
@@ -78,11 +89,11 @@ def _run_pylint_json(paths: list) -> list:
         ) from exc
 
 
-def _head_statement_counts(repo: Path, repo_rel_paths: Set[str]) -> Dict[str, Dict[str, int]]:
+def _head_statement_counts(repo: Path, repo_rel_paths: set[str]) -> dict[str, dict[str, int]]:
     """Map repo_rel path -> {obj_name: statement_count} at HEAD (pre-commit)."""
-    counts: Dict[str, Dict[str, int]] = {}
+    counts: dict[str, dict[str, int]] = {}
     with tempfile.TemporaryDirectory(dir=".") as tmp:
-        tmp_path_by_repo_rel: Dict[str, Path] = {}
+        tmp_path_by_repo_rel: dict[str, Path] = {}
         for repo_rel in repo_rel_paths:
             head_text = _head_text(repo, repo_rel)
             if head_text is None:
@@ -109,7 +120,7 @@ def _head_statement_counts(repo: Path, repo_rel_paths: Set[str]) -> Dict[str, Di
     return counts
 
 
-def _head_text(repo: Path, repo_rel: str) -> Optional[str]:
+def _head_text(repo: Path, repo_rel: str) -> str | None:
     # GIT_DIR beats cwd, so an unscrubbed call here reads the baseline out of
     # whatever repository the parent was bound to — a pre-push hook in a
     # worktree exports exactly that. The filter would then compare against
@@ -127,7 +138,7 @@ def _head_text(repo: Path, repo_rel: str) -> Optional[str]:
     return proc.stdout
 
 
-def _parse_args(argv: list) -> Tuple[str, list]:
+def _parse_args(argv: list) -> tuple[str, list]:
     """Split ``--repo-prefix`` out of the project-relative path list.
 
     Mirrors ``ruff_complexity_diff_filter._parse_args`` deliberately: the two
@@ -153,7 +164,7 @@ def main(argv: list) -> int:
         return 0
 
     repo = git_repo_root()
-    additions_map: Dict[str, Set[int]] = {}
+    additions_map: dict[str, set[int]] = {}
     if repo is not None:
         additions_map = {
             path: {ln for ln, _ in items}
@@ -163,7 +174,7 @@ def main(argv: list) -> int:
     messages = _run_pylint_json(server_rel_args)
 
     candidates = []
-    repo_rels_needed: Set[str] = set()
+    repo_rels_needed: set[str] = set()
     for msg in messages:
         if msg.get("symbol") != "too-many-statements":
             continue
