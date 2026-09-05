@@ -10,13 +10,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
-
-from lore_eden.store.sql import enforce_sqlite_foreign_keys
 
 # Imported for its side effect: registering the table on SQLModel.metadata.
 from lore_eden.mcp.servers.models import McpServerRecord  # noqa: F401
-
+from lore_eden.store.sql import enforce_sqlite_foreign_keys
+from sqlmodel import Session, SQLModel, create_engine
 
 # SQLite ignores foreign keys unless asked, per connection. The library's own
 # registration is used rather than a copy here: this file had one, it fired on

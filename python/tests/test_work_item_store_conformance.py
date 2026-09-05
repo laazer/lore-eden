@@ -20,8 +20,9 @@ tests here:
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 from lore_eden.store.memory import (
@@ -56,8 +57,6 @@ class Stores:
 
 
 def _sql_stores(url: str) -> Iterator[Stores]:
-    from sqlmodel import Session, SQLModel, create_engine
-
     from lore_eden.store.sql import (
         SqlCycleStore,
         SqlDependencyStore,
@@ -65,6 +64,7 @@ def _sql_stores(url: str) -> Iterator[Stores]:
         SqlTagStore,
         SqlWorkItemStore,
     )
+    from sqlmodel import Session, SQLModel, create_engine
 
     engine = create_engine(url)
     SQLModel.metadata.create_all(engine)

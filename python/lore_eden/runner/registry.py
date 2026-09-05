@@ -27,8 +27,8 @@ run it was set for is read again by the next one.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Mapping, Sequence
 
 from lore_eden.agents.policy import PermissionPolicy, deny_all
 from lore_eden.agents.prompts import PromptBuilder, StaticPrompt

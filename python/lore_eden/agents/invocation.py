@@ -35,10 +35,10 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Sequence
 
 
 class CliAdapter(str, Enum):

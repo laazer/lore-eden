@@ -22,10 +22,13 @@ again.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Mapping, Protocol, Sequence
+from typing import Protocol
 
+from lore_eden.ledger import EntityType, LedgerEvent
 from lore_eden.store.records import (
+    ANY_STATE,
     CursorRecord,
     CycleRecord,
     RelationRecord,
@@ -35,7 +38,6 @@ from lore_eden.store.records import (
     WorkItemState,
     WorkItemType,
 )
-from lore_eden.ledger import EntityType, LedgerEvent
 from lore_eden.usage import UsageRecord
 from lore_eden.workflow.approvals import Approval
 
@@ -165,7 +167,7 @@ class WorkItemStore(Protocol):
         self,
         *,
         item_type: WorkItemType | None = None,
-        state: WorkItemState = WorkItemState(""),
+        state: WorkItemState = ANY_STATE,
         cycle_id: str = "",
         parent_id: str = "",
         limit: int = 100,
@@ -208,7 +210,7 @@ class CycleStore(Protocol):
     def save_cycle(self, record: CycleRecord) -> CycleRecord: ...
 
     def list_cycles(
-        self, *, state: WorkItemState = WorkItemState("")
+        self, *, state: WorkItemState = ANY_STATE
     ) -> Sequence[CycleRecord]: ...
 
 
@@ -256,11 +258,11 @@ class LedgerStore(Protocol):
     a retry where it cannot. SQLite is the second case.
     """
 
-    def last_event(self, entity_id: str, entity_type: EntityType) -> "LedgerEvent | None":
+    def last_event(self, entity_id: str, entity_type: EntityType) -> LedgerEvent | None:
         """The highest-numbered event for one entity, or None for a fresh stream."""
         ...
 
-    def append_event(self, event: "LedgerEvent") -> "LedgerEvent":
+    def append_event(self, event: LedgerEvent) -> LedgerEvent:
         """Store one event.
 
         Raises :class:`lore_eden.ledger.LedgerSequenceConflict` when its
@@ -269,7 +271,7 @@ class LedgerStore(Protocol):
         """
         ...
 
-    def events_for(self, entity_id: str, entity_type: EntityType) -> Sequence["LedgerEvent"]:
+    def events_for(self, entity_id: str, entity_type: EntityType) -> Sequence[LedgerEvent]:
         """One entity's events, ordered by sequence number.
 
         The order is the contract: replay folds them in this order, so a store
@@ -278,7 +280,7 @@ class LedgerStore(Protocol):
         """
         ...
 
-    def event_by_idempotency_key(self, idempotency_key: str) -> "LedgerEvent | None": ...
+    def event_by_idempotency_key(self, idempotency_key: str) -> LedgerEvent | None: ...
 
 
 class UsageStore(Protocol):
@@ -290,14 +292,14 @@ class UsageStore(Protocol):
     a query per row of the table it is drawing.
     """
 
-    def add_usage(self, record: "UsageRecord") -> "UsageRecord": ...
+    def add_usage(self, record: UsageRecord) -> UsageRecord: ...
 
     def usage_for(
         self,
         group_keys: Sequence[str],
         since: datetime | None = None,
         until: datetime | None = None,
-    ) -> Mapping[str, Sequence["UsageRecord"]]:
+    ) -> Mapping[str, Sequence[UsageRecord]]:
         """Entries per group within the window, every key present.
 
         The bounds are inclusive of ``since`` and exclusive of ``until``, so

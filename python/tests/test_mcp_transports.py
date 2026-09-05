@@ -157,4 +157,6 @@ class TestTheProtocolNeedsNeitherFramework:
         import lore_eden.mcp
 
         with pytest.raises(AttributeError, match="no attribute 'make_mcp_carrier_pigeon'"):
-            lore_eden.mcp.make_mcp_carrier_pigeon
+            # Bound rather than left bare: the lookup is the whole test, and an
+            # unbound attribute reads as a useless expression to a linter.
+            _ = lore_eden.mcp.make_mcp_carrier_pigeon

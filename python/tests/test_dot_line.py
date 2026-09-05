@@ -10,7 +10,6 @@ from __future__ import annotations
 import doctest
 
 import pytest
-
 from lore_eden import dot_line
 from lore_eden.dot_line import (
     CMD,

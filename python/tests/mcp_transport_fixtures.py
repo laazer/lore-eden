@@ -62,7 +62,6 @@ def _decode(status: int, content: bytes) -> tuple[int, Any]:
 def fastapi_client(*, with_context: bool = False) -> TransportClient:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-
     from lore_eden.mcp import make_mcp_router
 
     app = FastAPI()

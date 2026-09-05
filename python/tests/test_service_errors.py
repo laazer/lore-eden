@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+# Pydantic's ValidationError is aliased throughout this file. `lore_eden.service`
+# exports its own `ValidationError` — a DomainError mapped to 422 — and an
+# unqualified import of pydantic's silently shadows it, which is how a test ends
+# up asserting on a class the code under test never raises.
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from lore_eden.service import (
     ConflictError,
     DomainError,
@@ -22,6 +25,7 @@ from lore_eden.service import (
     register_status,
     status_for,
 )
+from pydantic import ValidationError as PydanticValidationError
 
 
 class TestTheHierarchyKnowsNoHttp:
@@ -153,13 +157,13 @@ class TestPagination:
         assert PaginationParams().offset == 0
 
     def test_a_page_below_one_is_refused_rather_than_clamped(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(PydanticValidationError):
             PaginationParams(page=0)
 
     def test_a_size_over_the_maximum_is_refused_rather_than_truncated(self) -> None:
         # Answering a request for a thousand rows with a hundred, silently,
         # teaches the caller the limit does not exist.
-        with pytest.raises(Exception):
+        with pytest.raises(PydanticValidationError):
             PaginationParams(size=1000)
 
     def test_pages_is_derived_so_it_cannot_disagree(self) -> None:
@@ -212,10 +216,7 @@ class TestWhatTheReconciliationChanged:
         """Why the direction is an enum and the field name is not: two values,
         the same in every host, and `dsec` typed as a string sorts the other
         way in silence."""
-        import pytest
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
+        with pytest.raises(PydanticValidationError):
             PaginationParams(order_dir="dsec")
 
     def test_size_is_what_was_asked_for_not_what_came_back(self) -> None:

@@ -50,7 +50,11 @@ def make_mcp_router(
     @router.post("")
     async def mcp_post(
         request: Request,
-        context: Any = Depends(dependency),
+        # noqa on B008: a call in an argument default is exactly how FastAPI
+        # declares a dependency, and `policy/ruff-base.toml` says so itself —
+        # framework accommodations belong in the project that uses the
+        # framework, not in the shared base.
+        context: Any = Depends(dependency),  # noqa: B008
     ) -> JSONResponse:
         try:
             body = await request.json()

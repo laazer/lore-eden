@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from lore_eden.timestamps import as_utc, iso_utc, utcnow
 
 EASTERN = timezone(timedelta(hours=-5))

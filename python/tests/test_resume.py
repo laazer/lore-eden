@@ -19,10 +19,9 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from sqlmodel import Session, SQLModel, create_engine
-
 from lore_eden.store import DEFAULT_STALE_AFTER, RunRecord, RunStatus
 from lore_eden.store.sql import SqlCursorStore, SqlRunStore, enforce_sqlite_foreign_keys
+from sqlmodel import Session, SQLModel, create_engine
 
 HOST = Path(__file__).resolve().parent.parent / "examples" / "resumable_host.py"
 

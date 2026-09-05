@@ -13,7 +13,6 @@ failure mode that only shows later:
 from __future__ import annotations
 
 import inspect
-from typing import Iterator
 
 import pytest
 from lore_eden.cache import DictCache, NullCache
@@ -202,7 +201,7 @@ class TestCyclesAreRefusedOnInsert:
     def test_a_long_chain_is_still_caught(self) -> None:
         work = engine()
         chain = [f"n{index}" for index in range(12)]
-        for waiter, prerequisite in zip(chain[1:], chain):
+        for waiter, prerequisite in zip(chain[1:], chain, strict=False):
             work.add_dependency(waiter, prerequisite)
 
         with pytest.raises(DependencyCycleError):

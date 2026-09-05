@@ -12,19 +12,18 @@ exactly the N+1 it exists to stop.
 
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 from lore_eden.store.records import RelationKind, RelationRecord, WorkItemRecord, WorkItemType
-from sqlalchemy import event
-from sqlmodel import Session, SQLModel, create_engine
-
 from lore_eden.store.sql import (
     SqlDependencyStore,
     SqlRelationStore,
     SqlTagStore,
     SqlWorkItemStore,
 )
+from sqlalchemy import event
+from sqlmodel import Session, SQLModel, create_engine
 
 
 class QueryCounter:
@@ -264,7 +263,7 @@ class TestTheEngineWalksLevelsNotNodes:
         session, counter = counted
         work = self.engine_on(session)
         chain = [f"n{index}" for index in range(30)]
-        for waiter, prerequisite in zip(chain[1:], chain):
+        for waiter, prerequisite in zip(chain[1:], chain, strict=False):
             work.add_dependency(waiter, prerequisite)
 
         counter.statements.clear()

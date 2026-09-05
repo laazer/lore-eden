@@ -15,24 +15,25 @@ would be a second vocabulary for the same idea.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Mapping, Sequence
 
 from lore_eden.ledger import EntityType, LedgerEvent, LedgerSequenceConflict
-from lore_eden.usage import UsageRecord
 from lore_eden.store.records import (
+    ANY_STATE,
     CursorRecord,
     CycleRecord,
+    RelationKind,
     RelationRecord,
     RunRecord,
     RunStatus,
     WorkItemRecord,
-    RelationKind,
     WorkItemState,
     WorkItemType,
     utcnow,
 )
+from lore_eden.usage import UsageRecord
 
 
 class InMemoryCursorStore:
@@ -170,7 +171,7 @@ class InMemoryWorkItemStore:
         self,
         *,
         item_type: WorkItemType | None = None,
-        state: WorkItemState = WorkItemState(""),
+        state: WorkItemState = ANY_STATE,
         cycle_id: str = "",
         parent_id: str = "",
         limit: int = 100,
@@ -242,7 +243,7 @@ class InMemoryCycleStore:
         return replace(stored)
 
     def list_cycles(
-        self, *, state: WorkItemState = WorkItemState("")
+        self, *, state: WorkItemState = ANY_STATE
     ) -> Sequence[CycleRecord]:
         return [
             replace(cycle)

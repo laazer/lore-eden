@@ -12,8 +12,9 @@ So most of what follows is about `None`, not about arithmetic.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from datetime import timedelta
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 from lore_eden.cache import DictCache, NullCache
@@ -29,9 +30,8 @@ CENTS = Measure("cents")
 
 
 def _sql_store(url: str) -> Iterator[Any]:
-    from sqlmodel import Session, SQLModel, create_engine
-
     from lore_eden.store.sql import SqlUsageStore
+    from sqlmodel import Session, SQLModel, create_engine
 
     engine = create_engine(url)
     SQLModel.metadata.create_all(engine)
