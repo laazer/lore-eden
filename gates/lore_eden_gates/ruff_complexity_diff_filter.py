@@ -19,7 +19,6 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 _LEFTHOOK_SCRIPTS = Path(__file__).resolve().parent
 if str(_LEFTHOOK_SCRIPTS) not in sys.path:
@@ -31,7 +30,7 @@ from interpreter import require_python  # noqa: E402 - sys.path is set up just a
 # needed to *import* them, so a check that ran later would never run at all.
 require_python()
 
-from precommit_git_diff import (
+from precommit_git_diff import (  # noqa: E402 - deliberately after require_python(), see interpreter.py
     UnexaminableError,
     git_diff_cached,
     git_repo_root,
@@ -45,7 +44,7 @@ _COMPLEXITY_RE = re.compile(r"is too complex \((\d+)\s*>\s*(\d+)\)")
 _FN_NAME_RE = re.compile(r"`([^`]+)` is too complex")
 
 
-def _function_span(py_file: Path, lineno: int) -> Tuple[int, int]:
+def _function_span(py_file: Path, lineno: int) -> tuple[int, int]:
     try:
         tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
     except (SyntaxError, UnicodeDecodeError, OSError):
@@ -56,7 +55,7 @@ def _function_span(py_file: Path, lineno: int) -> Tuple[int, int]:
     return (lineno, lineno)
 
 
-def _complexity(message: str) -> Optional[int]:
+def _complexity(message: str) -> int | None:
     m = _COMPLEXITY_RE.search(message)
     return int(m.group(1)) if m else None
 
@@ -108,13 +107,13 @@ def _run_ruff_c901(paths: list[str], *, config: Path | None) -> list[dict]:
 
 
 def _head_complexities(
-    repo: Path, repo_rel_paths: Set[str], *, config: Path
-) -> Dict[str, Dict[str, int]]:
+    repo: Path, repo_rel_paths: set[str], *, config: Path
+) -> dict[str, dict[str, int]]:
     """Map repo_rel -> {function_name: complexity} for C901 hits at HEAD."""
-    counts: Dict[str, Dict[str, int]] = {}
+    counts: dict[str, dict[str, int]] = {}
     with tempfile.TemporaryDirectory(dir=".") as tmp:
         # Index by a unique token so we can map ruff's reported path back.
-        token_to_repo_rel: Dict[str, str] = {}
+        token_to_repo_rel: dict[str, str] = {}
         tmp_paths: list[str] = []
         for i, repo_rel in enumerate(sorted(repo_rel_paths)):
             head_text = _head_text(repo, repo_rel)
@@ -144,7 +143,7 @@ def _head_complexities(
     return counts
 
 
-def _head_text(repo: Path, repo_rel: str) -> Optional[str]:
+def _head_text(repo: Path, repo_rel: str) -> str | None:
     # GIT_DIR beats cwd, so an unscrubbed call here reads the baseline out of
     # whatever repository the parent was bound to — a pre-push hook in a
     # worktree exports exactly that. The filter would then compare against
@@ -184,7 +183,7 @@ def main(argv: list[str]) -> int:
     cwd = Path.cwd()
     config = cwd / "pyproject.toml"
     repo = git_repo_root()
-    additions_map: Dict[str, Set[int]] = {}
+    additions_map: dict[str, set[int]] = {}
     if repo is not None:
         additions_map = {
             path: {ln for ln, _ in items}
@@ -193,8 +192,8 @@ def main(argv: list[str]) -> int:
 
     messages = _run_ruff_c901(rel_args, config=config if config.is_file() else None)
 
-    candidates: List[tuple[dict, str, str]] = []
-    repo_rels_needed: Set[str] = set()
+    candidates: list[tuple[dict, str, str]] = []
+    repo_rels_needed: set[str] = set()
     for msg in messages:
         if msg.get("code") != "C901":
             continue
@@ -217,7 +216,7 @@ def main(argv: list[str]) -> int:
         else {}
     )
 
-    kept: List[dict] = []
+    kept: list[dict] = []
     for msg, repo_rel, obj in candidates:
         current = _complexity(msg.get("message", ""))
         baseline = head_counts.get(repo_rel, {}).get(obj) if obj else None

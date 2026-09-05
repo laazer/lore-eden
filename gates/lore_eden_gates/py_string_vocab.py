@@ -33,8 +33,8 @@ to match.
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 # Literals that are booleans wearing a costume; an enum is not the fix for these.
 _BOOLISH: frozenset[str] = frozenset(
@@ -66,7 +66,7 @@ _PROSE_OPERANDS: frozenset[str] = frozenset(
 )
 
 # Parameter/function names that carry a vocabulary rather than free text.
-_VOCAB_SUFFIXES: Tuple[str, ...] = ("status", "state", "kind", "type", "mode", "phase")
+_VOCAB_SUFFIXES: tuple[str, ...] = ("status", "state", "kind", "type", "mode", "phase")
 
 # ...except these, whose vocabulary is defined by a spec we do not own.
 _VOCAB_NAME_EXEMPTIONS: frozenset[str] = frozenset(
@@ -98,7 +98,7 @@ def is_exempt_path(py_file: Path) -> bool:
 # --------------------------------------------------------------------------- #
 
 
-def collect_enum_members(tree: ast.AST, catalog: Dict[str, Dict[str, str]]) -> None:
+def collect_enum_members(tree: ast.AST, catalog: dict[str, dict[str, str]]) -> None:
     """Add every ``str``-valued enum member in ``tree`` to ``catalog``.
 
     Shape is ``{member_value: {EnumName: "EnumName.MEMBER"}}`` — one value can
@@ -127,9 +127,9 @@ def _is_enum_base(base: ast.expr) -> bool:
     return name.endswith("Enum")
 
 
-def _visible_enum_names(tree: ast.AST) -> Set[str]:
+def _visible_enum_names(tree: ast.AST) -> set[str]:
     """Enum classes this module can reference by name: imported or defined here."""
-    names: Set[str] = set()
+    names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             names.update(alias.asname or alias.name for alias in node.names)
@@ -143,19 +143,19 @@ def _visible_enum_names(tree: ast.AST) -> Set[str]:
 # --------------------------------------------------------------------------- #
 
 
-def _const_str(expr: ast.expr) -> Optional[str]:
+def _const_str(expr: ast.expr) -> str | None:
     if isinstance(expr, ast.Constant) and isinstance(expr.value, str):  # py-org: allow-isinstance (ast node)
         return expr.value
     return None
 
 
-def _collection_literals(expr: ast.expr) -> List[str]:
+def _collection_literals(expr: ast.expr) -> list[str]:
     if not isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
         return []
     return [lit for lit in (_const_str(elt) for elt in expr.elts) if lit is not None]
 
 
-def _operand_tail(expr: ast.expr) -> Optional[str]:
+def _operand_tail(expr: ast.expr) -> str | None:
     """The identifier a comparison is really about: ``run.status`` -> ``status``."""
     if isinstance(expr, ast.Attribute):
         return expr.attr.lower()
@@ -166,10 +166,10 @@ def _operand_tail(expr: ast.expr) -> Optional[str]:
     return None
 
 
-def _match_case_literals(case: ast.match_case) -> List[str]:
+def _match_case_literals(case: ast.match_case) -> list[str]:
     pattern = case.pattern
     patterns = pattern.patterns if isinstance(pattern, ast.MatchOr) else [pattern]
-    out: List[str] = []
+    out: list[str] = []
     for sub in patterns:
         if isinstance(sub, ast.MatchValue):
             lit = _const_str(sub.value)
@@ -178,7 +178,7 @@ def _match_case_literals(case: ast.match_case) -> List[str]:
     return out
 
 
-def vocabulary_literals(tree: ast.AST) -> Iterable[Tuple[int, str]]:
+def vocabulary_literals(tree: ast.AST) -> Iterable[tuple[int, str]]:
     """``(lineno, literal)`` for literals used as a closed-vocabulary value.
 
     Equality against an expression, membership in a literal collection, or a
@@ -194,9 +194,9 @@ def vocabulary_literals(tree: ast.AST) -> Iterable[Tuple[int, str]]:
                 yield node.pattern.lineno, lit
 
 
-def _compare_literals(node: ast.Compare) -> Iterable[Tuple[int, str]]:
+def _compare_literals(node: ast.Compare) -> Iterable[tuple[int, str]]:
     left = node.left
-    for op, comparator in zip(node.ops, node.comparators):
+    for op, comparator in zip(node.ops, node.comparators, strict=True):
         if isinstance(op, (ast.Eq, ast.NotEq)):
             for lit, other in ((_const_str(comparator), left), (_const_str(left), comparator)):
                 if lit is not None and _operand_tail(other) not in _PROSE_OPERANDS:
@@ -219,12 +219,12 @@ def _is_vocabulary_literal(literal: str) -> bool:
 def enum_literal_errors(
     py_file: Path,
     tree: ast.AST,
-    touched_lines: Optional[Set[int]],
-    enum_catalog: Dict[str, Dict[str, str]],
-) -> List[Tuple[int, str]]:
+    touched_lines: set[int] | None,
+    enum_catalog: dict[str, dict[str, str]],
+) -> list[tuple[int, str]]:
     """Literals that duplicate a member of an enum this file already sees."""
     visible = _visible_enum_names(tree)
-    errors: List[Tuple[int, str]] = []
+    errors: list[tuple[int, str]] = []
     for lineno, literal in vocabulary_literals(tree):
         if not _is_vocabulary_literal(literal) or not _touched(lineno, touched_lines):
             continue
@@ -246,16 +246,16 @@ def enum_literal_errors(
     return errors
 
 
-def _module_constant_lines(tree: ast.AST) -> Set[int]:
+def _module_constant_lines(tree: ast.AST) -> set[int]:
     """Lines covered by a module-level ``UPPER_CASE = ...`` binding.
 
     A set of literals bound to a named constant has already been given a name,
     which is the fix this check asks for.
     """
-    lines: Set[int] = set()
+    lines: set[int] = set()
     for stmt in getattr(tree, "body", []):  # py-org: allow-dynamic (ast node)
-        target: Optional[str] = None
-        value: Optional[ast.expr] = None
+        target: str | None = None
+        value: ast.expr | None = None
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
             if isinstance(stmt.targets[0], ast.Name):
                 target, value = stmt.targets[0].id, stmt.value
@@ -270,8 +270,8 @@ def _module_constant_lines(tree: ast.AST) -> Set[int]:
     return lines
 
 
-def _inline_literal_set(node: ast.AST) -> Set[str]:
-    literals: Set[str] = set()
+def _inline_literal_set(node: ast.AST) -> set[str]:
+    literals: set[str] = set()
     if isinstance(node, ast.Compare) and any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
         for comparator in node.comparators:
             literals.update(_collection_literals(comparator))
@@ -291,11 +291,11 @@ def _inline_literal_set(node: ast.AST) -> Set[str]:
 
 
 def closed_set_errors(
-    py_file: Path, tree: ast.AST, touched_lines: Optional[Set[int]]
-) -> List[Tuple[int, str]]:
+    py_file: Path, tree: ast.AST, touched_lines: set[int] | None
+) -> list[tuple[int, str]]:
     """One expression tested against a whole inline vocabulary."""
     constant_lines = _module_constant_lines(tree)
-    errors: List[Tuple[int, str]] = []
+    errors: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         lineno = getattr(node, "lineno", None)  # py-org: allow-dynamic (ast node)
         if lineno is None or lineno in constant_lines or not _touched(lineno, touched_lines):
@@ -322,17 +322,17 @@ def _is_vocabulary_name(name: str) -> bool:
     return any(lowered == suffix or lowered.endswith(f"_{suffix}") for suffix in _VOCAB_SUFFIXES)
 
 
-def _bare_str_annotation(annotation: Optional[ast.expr]) -> bool:
+def _bare_str_annotation(annotation: ast.expr | None) -> bool:
     if annotation is None:
         return False
     return ast.unparse(annotation).replace(" ", "") in _BARE_STR_ANNOTATIONS
 
 
 def str_vocab_annotation_errors(
-    py_file: Path, tree: ast.AST, touched_lines: Optional[Set[int]]
-) -> List[Tuple[int, str]]:
+    py_file: Path, tree: ast.AST, touched_lines: set[int] | None
+) -> list[tuple[int, str]]:
     """Signatures that carry a vocabulary as bare ``str``."""
-    errors: List[Tuple[int, str]] = []
+    errors: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -368,17 +368,17 @@ def str_vocab_annotation_errors(
 def untyped_vocabulary_errors(
     py_file: Path,
     tree: ast.AST,
-    touched_lines: Optional[Set[int]],
-    enum_catalog: Dict[str, Dict[str, str]],
+    touched_lines: set[int] | None,
+    enum_catalog: dict[str, dict[str, str]],
     enum_home: str = "",
-) -> List[Tuple[int, str]]:
+) -> list[tuple[int, str]]:
     """A literal used as a vocabulary value all over one module, with no enum anywhere."""
-    sites: Dict[str, Set[int]] = {}
+    sites: dict[str, set[int]] = {}
     for lineno, literal in vocabulary_literals(tree):
         if _is_vocabulary_literal(literal) and literal not in enum_catalog:
             sites.setdefault(literal, set()).add(lineno)
 
-    errors: List[Tuple[int, str]] = []
+    errors: list[tuple[int, str]] = []
     for literal, linenos in sorted(sites.items()):
         if len(linenos) < MIN_VOCAB_SITES:
             continue
@@ -400,7 +400,7 @@ def untyped_vocabulary_errors(
     return errors
 
 
-def _touched(lineno: int, touched_lines: Optional[Set[int]]) -> bool:
+def _touched(lineno: int, touched_lines: set[int] | None) -> bool:
     """Matches the gate's ``_span_touched``: no diff information means no finding.
 
     The hook only knows what is staged when it can reach git. Reporting
@@ -419,15 +419,15 @@ def string_vocabulary_errors(
     py_file: Path,
     tree: ast.AST,
     content: str,
-    touched_lines: Optional[Set[int]],
-    enum_catalog: Dict[str, Dict[str, str]],
+    touched_lines: set[int] | None,
+    enum_catalog: dict[str, dict[str, str]],
     enum_home: str = "",
-) -> List[str]:
+) -> list[str]:
     """Run every vocabulary check, dropping the ones the author waived."""
     if is_exempt_path(py_file):
         return []
     source_lines = content.splitlines()
-    found: List[Tuple[int, str]] = [
+    found: list[tuple[int, str]] = [
         *enum_literal_errors(py_file, tree, touched_lines, enum_catalog),
         *closed_set_errors(py_file, tree, touched_lines),
         *str_vocab_annotation_errors(py_file, tree, touched_lines),

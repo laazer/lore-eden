@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import ast
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Set, Tuple
 
 _GATE_SCRIPTS = Path(__file__).resolve().parent
 if str(_GATE_SCRIPTS) not in sys.path:
@@ -104,9 +104,9 @@ def _normalizing_chain_over_str(node: ast.expr) -> bool:
     )
 
 
-def _boundary_functions(tree: ast.AST) -> Set[int]:
+def _boundary_functions(tree: ast.AST) -> set[int]:
     """Line numbers inside a one-line ``is_``/``to_``/``sanitize_`` function."""
-    lines: Set[int] = set()
+    lines: set[int] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -121,7 +121,7 @@ def _boundary_functions(tree: ast.AST) -> Set[int]:
     return lines
 
 
-def violations_in(path: Path, *, repo: Optional[Path]) -> List[Tuple[int, str]]:
+def violations_in(path: Path, *, repo: Path | None) -> list[tuple[int, str]]:
     """(line, source) for each defensive comparison in ``path``.
 
     Raises rather than returning empty when the file cannot be read or parsed:
@@ -133,7 +133,7 @@ def violations_in(path: Path, *, repo: Optional[Path]) -> List[Tuple[int, str]]:
     source_lines = content.splitlines()
     exempt = _boundary_functions(tree)
 
-    found: List[Tuple[int, str]] = []
+    found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Compare):
             continue
@@ -156,16 +156,16 @@ def violations_in(path: Path, *, repo: Optional[Path]) -> List[Tuple[int, str]]:
 class Invocation:
     """How this run was asked to scope itself."""
 
-    files: List[Path]
-    repo: Optional[Path]
+    files: list[Path]
+    repo: Path | None
     diff_scope: str
     base_ref: str
     label: str
 
 
-def parse_argv(argv: List[str]) -> Invocation:
-    files: List[Path] = []
-    repo_arg: Optional[str] = None
+def parse_argv(argv: list[str]) -> Invocation:
+    files: list[Path] = []
+    repo_arg: str | None = None
     diff_scope = STAGED
     base_ref = DEFAULT_BASE_REF
     index = 0
@@ -186,12 +186,12 @@ def parse_argv(argv: List[str]) -> Invocation:
     return Invocation(files, repo, diff_scope, base_ref, label)
 
 
-def _graded(repo: Optional[Path], candidates: Sequence[Path], discovered: bool) -> List[Path]:
+def _graded(repo: Path | None, candidates: Sequence[Path], discovered: bool) -> list[Path]:
     in_scope = python_files_in_scope(repo, candidates, discovered)
     return [path for path in in_scope if "tests" not in path.parts and not path.name.startswith("test_")]
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     invocation = parse_argv(argv)
     try:
         return _check(invocation)
@@ -212,7 +212,7 @@ def _check(invocation: Invocation) -> int:
     if not run.files:
         return 0
 
-    failures: List[str] = []
+    failures: list[str] = []
     for path in run.files:
         touched = run.touched_lines(path)
         for lineno, text in violations_in(path, repo=run.repo):

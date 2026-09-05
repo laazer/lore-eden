@@ -24,12 +24,24 @@ loregarden-specific: layout and the enum home are detected per repo, so every
 workspace the control plane drives gets the same rules.
 """
 
+# Deferred annotations, so the PEP 604 spellings below (`X | None`) are never
+# evaluated at definition time. On 3.9 an evaluated one raises TypeError, and
+# these files run under whatever `python3` a consuming workspace hands them.
+#
+# Not load-bearing *today*, and that was checked rather than assumed: removing
+# this import and running under 3.9.7 still reports the version cleanly, because
+# `require_python()` exits above these definitions before any of them is reached.
+# It is here so that remaining true does not depend on the guard staying above
+# them — a later import moved one line up would otherwise turn a clear message
+# back into the AttributeError this whole guard replaced.
+from __future__ import annotations
+
 import ast
 import os
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 _LEFTHOOK_SCRIPTS = Path(__file__).resolve().parent
 if str(_LEFTHOOK_SCRIPTS) not in sys.path:
@@ -41,7 +53,12 @@ from interpreter import require_python  # noqa: E402 - sys.path is set up just a
 # needed to *import* them, so a check that ran later would never run at all.
 require_python()
 
-from precommit_git_diff import (
+from house_rules import (  # noqa: E402 - deliberately after require_python(), see interpreter.py
+    HouseRules,
+    HouseRulesError,
+    load_house_rules,
+)
+from precommit_git_diff import (  # noqa: E402 - deliberately after require_python(), see interpreter.py
     DEFAULT_BASE_REF,
     STAGED,
     UnexaminableError,
@@ -53,8 +70,10 @@ from precommit_git_diff import (
     repo_relative_posix,
     resolve_gate_scope,
 )
-from house_rules import HouseRules, HouseRulesError, load_house_rules
-from py_string_vocab import collect_enum_members, string_vocabulary_errors
+from py_string_vocab import (  # noqa: E402 - deliberately after require_python(), see interpreter.py
+    collect_enum_members,
+    string_vocabulary_errors,
+)
 
 MAX_FILE_LINES = 1500
 # Test modules get a higher cap. A suite grows by accumulating cases against one
@@ -89,14 +108,14 @@ _ALLOW_ISINSTANCE = "# py-org: allow-isinstance"
 _ALLOW_DYNAMIC = "# py-org: allow-dynamic"
 
 
-def _span_touched(start: int, end: int, touched_lines: Optional[Set[int]]) -> bool:
+def _span_touched(start: int, end: int, touched_lines: set[int] | None) -> bool:
     """True if any line in [start, end] was added/modified in this diff."""
     if not touched_lines:
         return False
     return any(ln in touched_lines for ln in range(start, end + 1))
 
 
-def class_span(node: ast.ClassDef) -> Optional[int]:
+def class_span(node: ast.ClassDef) -> int | None:
     start = node.lineno
     end = node.end_lineno
     if start is None or end is None:
@@ -104,7 +123,7 @@ def class_span(node: ast.ClassDef) -> Optional[int]:
     return end - start + 1
 
 
-def _call_dynamic_access_name(func: ast.expr) -> Optional[str]:
+def _call_dynamic_access_name(func: ast.expr) -> str | None:
     if isinstance(func, ast.Name) and func.id in _FORBIDDEN_DYNAMIC_ACCESS:
         return func.id
     if isinstance(func, ast.Attribute) and func.attr in _FORBIDDEN_DYNAMIC_ACCESS:
@@ -119,9 +138,9 @@ def _is_test_path(py_file: Path) -> bool:
 def dynamic_access_errors(
     py_file: Path,
     tree: ast.AST,
-    content_lines: List[str],
-    touched_lines: Optional[Set[int]],
-) -> List[str]:
+    content_lines: list[str],
+    touched_lines: set[int] | None,
+) -> list[str]:
     """Forbid getattr/setattr outside tests, on staged-added lines only.
 
     ``# py-org: allow-dynamic`` waives a line. The rule shipped without an
@@ -131,7 +150,7 @@ def dynamic_access_errors(
     """
     if _is_test_path(py_file):
         return []
-    errors: List[str] = []
+    errors: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -160,7 +179,7 @@ def _is_ast_node_type(target: str) -> bool:
     return target.startswith("ast.")
 
 
-def _runtime_checkable_protocols(tree: ast.AST) -> Set[str]:
+def _runtime_checkable_protocols(tree: ast.AST) -> set[str]:
     """Names of ``@runtime_checkable`` Protocol classes defined in this file.
 
     ``isinstance(x, SomeProtocol)`` is a structural check against a declared
@@ -174,7 +193,7 @@ def _runtime_checkable_protocols(tree: ast.AST) -> Set[str]:
     (anything ending in ``Protocol``, say) would let a real type switch through
     on a badly named class. For those, the waiver comment is still the answer.
     """
-    protocols: Set[str] = set()
+    protocols: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
@@ -207,7 +226,7 @@ def _base_name(base: ast.expr) -> str:
     return ""
 
 
-def _isinstance_targets(node: ast.Call) -> List[str]:
+def _isinstance_targets(node: ast.Call) -> list[str]:
     if len(node.args) < 2:
         return []
     target = node.args[1]
@@ -216,8 +235,8 @@ def _isinstance_targets(node: ast.Call) -> List[str]:
 
 
 def isinstance_errors(
-    py_file: Path, tree: ast.AST, content_lines: List[str], touched_lines: Optional[Set[int]]
-) -> List[str]:
+    py_file: Path, tree: ast.AST, content_lines: list[str], touched_lines: set[int] | None
+) -> list[str]:
     """Forbid `isinstance(...)` outside tests, on staged lines only.
 
     Runtime type-switching is the dynamic-access smell one level up: the value's
@@ -243,7 +262,7 @@ def isinstance_errors(
     if _is_test_path(py_file):
         return []
     local_protocols = _runtime_checkable_protocols(tree)
-    errors: List[str] = []
+    errors: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -274,7 +293,7 @@ def isinstance_errors(
     return errors
 
 
-def _line_waives(content_lines: List[str], lineno: int, marker: str) -> bool:
+def _line_waives(content_lines: list[str], lineno: int, marker: str) -> bool:
     if 1 <= lineno <= len(content_lines):
         return marker in content_lines[lineno - 1]
     return False
@@ -282,14 +301,14 @@ def _line_waives(content_lines: List[str], lineno: int, marker: str) -> bool:
 
 def check_file(
     py_file: Path,
-    touched_lines: Optional[Set[int]] = None,
+    touched_lines: set[int] | None = None,
     net_growing: bool = False,
-    catalogs: Optional["RepoCatalogs"] = None,
+    catalogs: RepoCatalogs | None = None,
     *,
-    repo: Optional[Path],
+    repo: Path | None,
     house_rules: HouseRules,
-) -> List[str]:
-    errors: List[str] = []
+) -> list[str]:
+    errors: list[str] = []
 
     # Missing, unreadable or undecodable raises out of here rather than
     # returning an empty error list: "I found nothing wrong" and "I never read
@@ -361,7 +380,7 @@ def _joined_str_has_mid_dot(node: ast.JoinedStr) -> bool:
     return False
 
 
-def _mid_dot_sites_in_function(fn: ast.AST) -> List[int]:
+def _mid_dot_sites_in_function(fn: ast.AST) -> list[int]:
     """Line numbers of f-strings that hard-code the mid-dot separator."""
     return [
         node.lineno or 0
@@ -373,9 +392,9 @@ def _mid_dot_sites_in_function(fn: ast.AST) -> List[int]:
 def mid_dot_fstring_errors(
     py_file: Path,
     tree: ast.AST,
-    touched_lines: Optional[Set[int]],
+    touched_lines: set[int] | None,
     house_rules: HouseRules,
-) -> List[str]:
+) -> list[str]:
     """Flag functions that hand-roll several mid-dot labels instead of a helper.
 
     Diff-scoped: only fails when at least one mid-dot f-string overlaps the
@@ -391,9 +410,9 @@ def mid_dot_fstring_errors(
     if _is_test_path(py_file):
         return []
 
-    errors: List[str] = []
+    errors: list[str] = []
     for node in tree.body:
-        funcs: List[ast.AST] = []
+        funcs: list[ast.AST] = []
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             funcs.append(node)
         elif isinstance(node, ast.ClassDef):
@@ -420,10 +439,10 @@ def init_module_minimal_errors(
     py_file: Path,
     tree: ast.AST,
     lines: int,
-    touched_lines: Optional[Set[int]],
+    touched_lines: set[int] | None,
     net_growing: bool = False,
-) -> List[str]:
-    errors: List[str] = []
+) -> list[str]:
+    errors: list[str] = []
     if py_file.name != "__init__.py":
         return errors
 
@@ -445,9 +464,9 @@ def init_module_minimal_errors(
 
 
 def private_import_errors(
-    py_file: Path, tree: ast.AST, touched_lines: Optional[Set[int]]
-) -> List[str]:
-    errors: List[str] = []
+    py_file: Path, tree: ast.AST, touched_lines: set[int] | None
+) -> list[str]:
+    errors: list[str] = []
     is_test_file = _is_test_path(py_file)
     if is_test_file:
         return errors
@@ -477,7 +496,7 @@ def private_import_errors(
     return errors
 
 
-def _split_source_lines(source: str) -> List[str]:
+def _split_source_lines(source: str) -> list[str]:
     """Split source into lines the way the parser does (keepends; \\r \\n \\r\\n only).
 
     Faithful copy of CPython's private ``ast._splitlines_no_ff`` so we can split a
@@ -485,7 +504,7 @@ def _split_source_lines(source: str) -> List[str]:
     the whole file for every statement node (the previous O(statements x file_size) cost).
     """
     idx = 0
-    lines: List[str] = []
+    lines: list[str] = []
     next_line = ""
     n = len(source)
     while idx < n:
@@ -503,7 +522,7 @@ def _split_source_lines(source: str) -> List[str]:
     return lines
 
 
-def _source_segment_from_lines(lines: List[str], node: ast.AST) -> Optional[str]:
+def _source_segment_from_lines(lines: list[str], node: ast.AST) -> str | None:
     """Reproduce ``ast.get_source_segment(source, node)`` (padded=False) from pre-split
     ``lines`` (as produced by ``_split_source_lines``). Byte-for-byte identical output;
     only the whole-source re-split per call is eliminated."""
@@ -524,9 +543,9 @@ def _source_segment_from_lines(lines: List[str], node: ast.AST) -> Optional[str]
     return "".join([first, *middle, last])
 
 
-def normalized_body_lines(lines: List[str], node: ast.AST) -> List[str]:
+def normalized_body_lines(lines: list[str], node: ast.AST) -> list[str]:
     segment = _source_segment_from_lines(lines, node) or ""
-    out: List[str] = []
+    out: list[str] = []
     for raw in segment.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -537,14 +556,14 @@ def normalized_body_lines(lines: List[str], node: ast.AST) -> List[str]:
 
 def find_duplicate_function_bodies(
     tree: ast.AST, source: str
-) -> List[List[tuple[str, int, int]]]:
+) -> list[list[tuple[str, int, int]]]:
     """Returns groups of (name, lineno, end_lineno) with identical normalized bodies."""
-    buckets: dict[tuple[str, ...], List[tuple[str, int, int]]] = {}
+    buckets: dict[tuple[str, ...], list[tuple[str, int, int]]] = {}
     lines = _split_source_lines(source)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        body_lines: List[str] = []
+        body_lines: list[str] = []
         for stmt in node.body:
             body_lines.extend(normalized_body_lines(lines, stmt))
         if len(body_lines) < MIN_DUPLICATE_BODY_LINES:
@@ -554,10 +573,10 @@ def find_duplicate_function_bodies(
     return [group for group in buckets.values() if len(group) > 1]
 
 
-def function_body_key(node: ast.AST, lines: List[str]) -> Optional[Tuple[str, ...]]:
+def function_body_key(node: ast.AST, lines: list[str]) -> tuple[str, ...] | None:
     if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         return None
-    body_lines: List[str] = []
+    body_lines: list[str] = []
     for stmt in node.body:
         body_lines.extend(normalized_body_lines(lines, stmt))
     if len(body_lines) < MIN_DUPLICATE_BODY_LINES:
@@ -580,7 +599,7 @@ def _project_root_for(py_file: Path, repo_root: Path) -> Path:
         current = current.parent
 
 
-def python_source_roots(repo_root: Path, changed_files: Optional[List[Path]] = None) -> List[Path]:
+def python_source_roots(repo_root: Path, changed_files: list[Path] | None = None) -> list[Path]:
     """Which subtrees the cross-file catalogs should walk.
 
     loregarden nests its package under ``server/``; other workspaces put it at the
@@ -596,7 +615,7 @@ def python_source_roots(repo_root: Path, changed_files: Optional[List[Path]] = N
             return [path]
     if not changed_files:
         return [repo_root]
-    roots: List[Path] = []
+    roots: list[Path] = []
     for py_file in changed_files:
         root = _project_root_for(py_file, repo_root)
         # Drop any root already covered by a shallower one.
@@ -606,7 +625,7 @@ def python_source_roots(repo_root: Path, changed_files: Optional[List[Path]] = N
     return roots or [repo_root]
 
 
-def python_source_root(repo_root: Path, changed_files: Optional[List[Path]] = None) -> Path:
+def python_source_root(repo_root: Path, changed_files: list[Path] | None = None) -> Path:
     """The single root used for "is this file in scope" tests (gate mode filtering)."""
     roots = python_source_roots(repo_root, changed_files)
     return roots[0] if len(roots) == 1 else repo_root
@@ -629,8 +648,8 @@ def _is_gate_script(py_file: Path, repo: Path) -> bool:
 
 
 def python_files_in_scope(
-    repo: Optional[Path], candidates: Sequence[Path], discovered: bool = True
-) -> List[Path]:
+    repo: Path | None, candidates: Sequence[Path], discovered: bool = True
+) -> list[Path]:
     """The Python files a gate should read, from a run's candidate paths.
 
     A ``discovered`` list came from a diff, so it is confined to the repo's own
@@ -653,7 +672,7 @@ def python_files_in_scope(
     ]
 
 
-def _read_and_parse(py_file: Path, *, repo: Optional[Path]) -> Optional[Tuple[str, ast.AST]]:
+def _read_and_parse(py_file: Path, *, repo: Path | None) -> tuple[str, ast.AST] | None:
     """Source and AST for a file this run grades; ``None`` only for bad syntax.
 
     A read failure raises (see `read_source_text`). A `SyntaxError` is the one
@@ -669,8 +688,8 @@ def _read_and_parse(py_file: Path, *, repo: Optional[Path]) -> Optional[Tuple[st
 
 
 def function_keys_for_file(
-    py_file: Path, *, repo: Optional[Path]
-) -> List[Tuple[Tuple[str, ...], str, int, int]]:
+    py_file: Path, *, repo: Path | None
+) -> list[tuple[tuple[str, ...], str, int, int]]:
     """Returns (body_key, name, lineno, end_lineno) for eligible functions in a file."""
     parsed = _read_and_parse(py_file, repo=repo)
     if parsed is None:
@@ -681,9 +700,9 @@ def function_keys_for_file(
 
 def function_keys_from_tree(
     tree: ast.AST, source: str
-) -> List[Tuple[Tuple[str, ...], str, int, int]]:
+) -> list[tuple[tuple[str, ...], str, int, int]]:
     lines = _split_source_lines(source)
-    keys: List[Tuple[Tuple[str, ...], str, int, int]] = []
+    keys: list[tuple[tuple[str, ...], str, int, int]] = []
     for node in ast.walk(tree):
         key = function_body_key(node, lines)
         if key is None:
@@ -695,8 +714,8 @@ def function_keys_from_tree(
 
 @dataclass(frozen=True)
 class RepoCatalogs:
-    duplicates: Dict[Tuple[str, ...], List[Tuple[str, str, int]]]
-    enums: Dict[str, Dict[str, str]]
+    duplicates: dict[tuple[str, ...], list[tuple[str, str, int]]]
+    enums: dict[str, dict[str, str]]
     #: The module that already holds most of this repo's enums, so "add one" can
     #: point somewhere real in whichever workspace is being checked rather than
     #: naming loregarden's own.
@@ -704,7 +723,7 @@ class RepoCatalogs:
 
 
 def build_repo_catalogs(
-    changed_files: List[Path], repo_root: Optional[Path] = None
+    changed_files: list[Path], repo_root: Path | None = None
 ) -> RepoCatalogs:
     """One walk, three answers: duplicate-body keys, str-enum member values, enum home.
 
@@ -714,10 +733,10 @@ def build_repo_catalogs(
     still the type the rest of the commit should be using.
     """
     changed_set = {p.resolve() for p in changed_files if p.exists()}
-    unreadable: List[str] = []
-    catalog: Dict[Tuple[str, ...], List[Tuple[str, str, int]]] = {}
-    enum_catalog: Dict[str, Dict[str, str]] = {}
-    enum_density: Dict[str, int] = {}
+    unreadable: list[str] = []
+    catalog: dict[tuple[str, ...], list[tuple[str, str, int]]] = {}
+    enum_catalog: dict[str, dict[str, str]] = {}
+    enum_density: dict[str, int] = {}
     root = repo_root or Path(".")
     for walk_root in python_source_roots(root, changed_files):
         for dirpath, dirnames, filenames in os.walk(walk_root):
@@ -755,13 +774,13 @@ def build_repo_catalogs(
 
 
 def codebase_dry_errors(
-    changed_files: List[Path],
-    catalog: Dict[Tuple[str, ...], List[Tuple[str, str, int]]],
-    touched_map: Dict[Path, Optional[Set[int]]],
+    changed_files: list[Path],
+    catalog: dict[tuple[str, ...], list[tuple[str, str, int]]],
+    touched_map: dict[Path, set[int] | None],
     *,
-    repo: Optional[Path],
-) -> List[str]:
-    errors: List[str] = []
+    repo: Path | None,
+) -> list[str]:
+    errors: list[str] = []
     for py_file in changed_files:
         touched = touched_map.get(py_file)
         for key, func_name, lineno, end_lineno in function_keys_for_file(py_file, repo=repo):
@@ -786,16 +805,16 @@ class Invocation:
     is judging whatever an agent just did to a workspace it does not enumerate.
     """
 
-    files: List[Path]
-    repo: Optional[Path]
+    files: list[Path]
+    repo: Path | None
     diff_scope: str
     base_ref: str
     label: str
 
 
-def parse_argv(argv: List[str]) -> Invocation:
-    files: List[Path] = []
-    repo_arg: Optional[str] = None
+def parse_argv(argv: list[str]) -> Invocation:
+    files: list[Path] = []
+    repo_arg: str | None = None
     diff_scope = STAGED
     base_ref = DEFAULT_BASE_REF
     rest = argv[1:]
@@ -817,7 +836,7 @@ def parse_argv(argv: List[str]) -> Invocation:
     return Invocation(files, repo, diff_scope, base_ref, label)
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
     invocation = parse_argv(argv)
     try:
         return _check(invocation)
@@ -848,8 +867,8 @@ def _check(invocation: Invocation) -> int:
         return 0
 
     house_rules = load_house_rules(run.repo)
-    touched_map: Dict[Path, Optional[Set[int]]] = {}
-    all_errors: List[str] = []
+    touched_map: dict[Path, set[int] | None] = {}
+    all_errors: list[str] = []
     catalogs = build_repo_catalogs(candidates, run.repo)
     for path in candidates:
         touched = run.touched_lines(path)

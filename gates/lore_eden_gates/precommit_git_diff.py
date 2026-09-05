@@ -17,9 +17,9 @@ import ast
 import os
 import re
 import subprocess
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
 HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
@@ -49,7 +49,7 @@ GIT_LOCATION_ENV_VARS = (
 GIT_CONFIG_ENV_PREFIXES = ("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
 
 
-def scrubbed_git_env() -> Dict[str, str]:
+def scrubbed_git_env() -> dict[str, str]:
     """The ambient environment minus git's repo bindings and injected config."""
     env = dict(os.environ)
     for name in GIT_LOCATION_ENV_VARS:
@@ -92,7 +92,7 @@ class UnexaminableFileError(UnexaminableError):
     """
 
 
-def require_tool_ran(tool: str, proc: "subprocess.CompletedProcess[str]") -> None:
+def require_tool_ran(tool: str, proc: subprocess.CompletedProcess[str]) -> None:
     """Refuse to read a verdict out of a tool that never ran.
 
     ``python -m ruff`` with ruff uninstalled exits non-zero with nothing on
@@ -168,7 +168,7 @@ def decode_git_path(token: str) -> str:
     return out.decode("utf-8", errors="surrogateescape")
 
 
-def decoded_git_paths(out: str) -> List[str]:
+def decoded_git_paths(out: str) -> list[str]:
     """Every path in a git command's path-per-line output, decoded.
 
     No ``.strip()``: git quotes anything that would make a line ambiguous, so
@@ -184,7 +184,7 @@ def decoded_git_paths(out: str) -> List[str]:
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 
 
-def read_source_text(path: Path, *, repo: Optional[Path]) -> str:
+def read_source_text(path: Path, *, repo: Path | None) -> str:
     """The text of a file a gate is about to grade, or a loud failure.
 
     Never ``None``. The caller has no way to tell a ``None`` meaning "nothing
@@ -289,7 +289,7 @@ def parse_python_source(source: str, path: Path) -> ast.Module:
         ) from exc
 
 
-def git_repo_root() -> Optional[Path]:
+def git_repo_root() -> Path | None:
     try:
         proc = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -342,7 +342,7 @@ def _validated_ref(ref: str) -> str:
     return ref
 
 
-def _scope_args(diff_scope: str, base_ref: str) -> List[str]:
+def _scope_args(diff_scope: str, base_ref: str) -> list[str]:
     """git-diff selectors for each scope.
 
     ``worktree`` uses ``HEAD`` so it covers staged *and* unstaged edits — an
@@ -360,7 +360,7 @@ def _scope_args(diff_scope: str, base_ref: str) -> List[str]:
     return ["--cached"]
 
 
-def _git(command: List[str], repo: Path) -> str:
+def _git(command: list[str], repo: Path) -> str:
     proc = subprocess.run(
         ["git", *command],
         cwd=repo,
@@ -383,7 +383,7 @@ def _git(command: List[str], repo: Path) -> str:
     return proc.stdout
 
 
-def _run_git(args: List[str], repo: Path) -> str:
+def _run_git(args: list[str], repo: Path) -> str:
     return _git(["diff", *args], repo)
 
 
@@ -393,7 +393,7 @@ def git_diff_cached(repo: Path, diff_scope: str = STAGED, base_ref: str = "main"
     return _run_git([*_scope_args(diff_scope, base_ref), "--no-color", "-U0", "--"], repo)
 
 
-def git_untracked_paths(repo: Path) -> List[str]:
+def git_untracked_paths(repo: Path) -> list[str]:
     """Repo-relative paths git is not tracking yet, respecting .gitignore.
 
     A brand-new file is invisible to `git diff` until it is added. In pre-commit
@@ -424,7 +424,7 @@ def git_has_head(repo: Path) -> bool:
     return proc.returncode == 0
 
 
-def git_changed_paths(repo: Path, diff_scope: str = STAGED, base_ref: str = "main") -> List[str]:
+def git_changed_paths(repo: Path, diff_scope: str = STAGED, base_ref: str = "main") -> list[str]:
     """Repo-relative paths this diff touches, for callers given no explicit file list."""
     if diff_scope == WORKTREE and not git_has_head(repo):
         return sorted(set(git_untracked_paths(repo)))
@@ -461,7 +461,7 @@ class ResolvedScope:
 
     diff_scope: str
     base_ref: str
-    paths: List[str]
+    paths: list[str]
     description: str
     #: True when ``base_ref`` did not resolve and this run fell back to a
     #: narrower scope than the caller asked for. The fallback still reads the
@@ -505,7 +505,7 @@ def git_empty_tree(repo: Path) -> str:
     return _git(["hash-object", "-t", "tree", os.devnull], repo).strip()
 
 
-def git_merge_base(repo: Path, base_ref: str) -> Optional[str]:
+def git_merge_base(repo: Path, base_ref: str) -> str | None:
     """The commit this branch forked from, or None when there is no such commit.
 
     None covers two cases the caller must tell apart — see `git_rev_exists`.
@@ -523,7 +523,7 @@ def git_merge_base(repo: Path, base_ref: str) -> Optional[str]:
     return proc.stdout.strip() or None
 
 
-def git_origin_head(repo: Path) -> Optional[str]:
+def git_origin_head(repo: Path) -> str | None:
     """The trunk ``origin/HEAD`` names, e.g. ``origin/master``, or None.
 
     The remote's own answer rather than a guess, so it is asked before the
@@ -656,10 +656,10 @@ def examined_line(label: str, count: int, description: str) -> str:
 #: the repo's source root, mirroring the lefthook glob, while an explicit list
 #: was already scoped by the caller and narrowing it again would silently drop
 #: files that caller meant to have graded.
-GateFileSelector = Callable[[Optional[Path], Sequence[Path], bool], List[Path]]
+GateFileSelector = Callable[[Path | None, Sequence[Path], bool], list[Path]]
 
 
-def all_line_numbers(path: Path, *, repo: Optional[Path]) -> Set[int]:
+def all_line_numbers(path: Path, *, repo: Path | None) -> set[int]:
     """Every line of ``path``, as a touched-line set.
 
     What a file with no diff to scope against is graded on: an untracked file
@@ -682,7 +682,7 @@ def located_path(path: Path) -> Path:
     return path.parent.resolve() / path.name
 
 
-def repo_relative_posix(path: Path, repo: Optional[Path]) -> str:
+def repo_relative_posix(path: Path, repo: Path | None) -> str:
     """``path`` as git names it in a diff, or unchanged when it is outside ``repo``."""
     if repo is None:
         return path.as_posix()
@@ -716,13 +716,13 @@ class GateRun:
     """
 
     label: str
-    repo: Optional[Path]
+    repo: Path | None
     scope: ResolvedScope
-    files: List[Path]
+    files: list[Path]
     #: relpath -> line numbers this change added or modified, from the resolved diff.
-    additions: Dict[str, Set[int]]
+    additions: dict[str, set[int]]
     #: relpaths git is not tracking; their whole contents count as touched.
-    untracked: FrozenSet[str]
+    untracked: frozenset[str]
     #: line counts for the "don't make it worse" size checks, and the relpaths
     #: whose diff git suppressed — see `DiffNumstat`.
     numstat: DiffNumstat
@@ -735,7 +735,7 @@ class GateRun:
     def base_ref(self) -> str:
         return self.scope.base_ref
 
-    def touched_lines(self, path: Path) -> Optional[Set[int]]:
+    def touched_lines(self, path: Path) -> set[int] | None:
         """Lines in ``path`` this run may report violations on.
 
         ``None`` means "no diff to scope against at all" — no repository, so
@@ -769,7 +769,7 @@ class GateRun:
 GITLINK_MODE = "160000"
 
 
-def git_gitlink_paths(repo: Path, diff_scope: str, base_ref: str) -> List[str]:
+def git_gitlink_paths(repo: Path, diff_scope: str, base_ref: str) -> list[str]:
     """Submodule paths this diff moved.
 
     ``--name-only`` lists the gitlink like any other path, every gate's language
@@ -777,7 +777,7 @@ def git_gitlink_paths(repo: Path, diff_scope: str, base_ref: str) -> List[str]:
     file(s)`` and exits 0 — a change nobody graded, reported as a clean gate.
     """
     out = _run_git([*_scope_args(diff_scope, base_ref), "--raw", "--"], repo)
-    found: List[str] = []
+    found: list[str] = []
     for line in out.splitlines():
         if not line.startswith(":"):
             continue
@@ -812,7 +812,7 @@ def announce_ungraded_submodules(label: str, repo: Path, scope: ResolvedScope) -
 def resolve_gate_scope(
     *,
     label: str,
-    repo: Optional[Path],
+    repo: Path | None,
     diff_scope: str,
     base_ref: str,
     explicit_files: Iterable[Path],
@@ -855,8 +855,8 @@ def resolve_gate_scope(
     print(examined_line(label, len(files), scope.description))
     if discovered and repo is not None and git_has_head(repo):
         announce_ungraded_submodules(label, repo, scope)
-    additions: Dict[str, Set[int]] = {}
-    untracked: FrozenSet[str] = frozenset()
+    additions: dict[str, set[int]] = {}
+    untracked: frozenset[str] = frozenset()
     numstat = DiffNumstat({}, frozenset())
     if repo is not None and files:
         diff = git_diff_cached(repo, scope.diff_scope, scope.base_ref)
@@ -886,7 +886,7 @@ def resolve_gate_scope(
     )
 
 
-def diff_header_path(line: str) -> Optional[str]:
+def diff_header_path(line: str) -> str | None:
     """The relpath a ``+++ `` header names, or None for ``/dev/null``.
 
     The quoting wraps the *whole* operand, prefix included:
@@ -899,7 +899,7 @@ def diff_header_path(line: str) -> Optional[str]:
     return name[2:] if name.startswith("b/") else None
 
 
-def diff_header_paths(diff: str) -> Set[str]:
+def diff_header_paths(diff: str) -> set[str]:
     """Every relpath this diff text actually produced a file header for.
 
     The other half of the question ``--numstat`` answers. A file git lists as
@@ -917,7 +917,7 @@ def diff_header_paths(diff: str) -> Set[str]:
 
 def suppressed_diff_paths(
     diff: str, numstat: DiffNumstat, candidates: Iterable[str]
-) -> FrozenSet[str]:
+) -> frozenset[str]:
     """Candidate relpaths git changed but produced no hunk for — graded whole.
 
     This is the *mechanism* behind the ``.gitattributes`` hole rather than one
@@ -944,10 +944,10 @@ def suppressed_diff_paths(
     )
 
 
-def parse_staged_additions(diff: str) -> Dict[str, List[Tuple[int, str]]]:
+def parse_staged_additions(diff: str) -> dict[str, list[tuple[int, str]]]:
     """Map relpath (as in diff, posix) -> [(new_line_no, added_line_without_leading_plus)]."""
-    result: Dict[str, List[Tuple[int, str]]] = {}
-    current_file: Optional[str] = None
+    result: dict[str, list[tuple[int, str]]] = {}
+    current_file: str | None = None
     lines = diff.splitlines()
     i = 0
     while i < len(lines):
@@ -967,17 +967,17 @@ def parse_staged_additions(diff: str) -> Dict[str, List[Tuple[int, str]]]:
                 continue
             new_line = int(m.group(3))
             while i < len(lines):
-                l = lines[i]
-                if l.startswith("@@") or l.startswith("diff --git"):
+                line = lines[i]
+                if line.startswith("@@") or line.startswith("diff --git"):
                     break
-                if l.startswith("\\"):
+                if line.startswith("\\"):
                     i += 1
                     continue
-                if not l:
+                if not line:
                     i += 1
                     continue
-                prefix = l[0]
-                body = l[1:]
+                prefix = line[0]
+                body = line[1:]
                 if prefix == "+":
                     lst = result.setdefault(current_file, [])
                     lst.append((new_line, body))
@@ -1005,11 +1005,11 @@ class DiffNumstat:
     was what made the suppression invisible, so it is carried instead.
     """
 
-    counts: Dict[str, Tuple[int, int]]
+    counts: dict[str, tuple[int, int]]
     #: relpaths git reported as changed but refused to diff by line.
-    undiffable: FrozenSet[str]
+    undiffable: frozenset[str]
 
-    def with_suppressed(self, paths: FrozenSet[str]) -> DiffNumstat:
+    def with_suppressed(self, paths: frozenset[str]) -> DiffNumstat:
         """The same counts, with `suppressed_diff_paths` folded into ``undiffable``.
 
         Both arrive at the same place because they mean the same thing
@@ -1019,7 +1019,7 @@ class DiffNumstat:
         return DiffNumstat(self.counts, self.undiffable | paths)
 
 
-def git_added_paths(repo: Path, diff_scope: str = STAGED, base_ref: str = "main") -> List[str]:
+def git_added_paths(repo: Path, diff_scope: str = STAGED, base_ref: str = "main") -> list[str]:
     """Relpaths this scope *adds*, which are new in their entirety.
 
     Same standing as an untracked file, and graded the same way. Normally this
@@ -1045,8 +1045,8 @@ def git_diff_numstat(
     otherwise a pure cleanup/shrink of a long file would itself get blocked.
     """
     out = _run_git([*_scope_args(diff_scope, base_ref), "--numstat", "--"], repo)
-    counts: Dict[str, Tuple[int, int]] = {}
-    undiffable: Set[str] = set()
+    counts: dict[str, tuple[int, int]] = {}
+    undiffable: set[str] = set()
     for line in out.splitlines():
         parts = line.split("\t")
         if len(parts) != 3:
@@ -1059,7 +1059,7 @@ def git_diff_numstat(
     return DiffNumstat(counts, frozenset(undiffable))
 
 
-def staged_file_text(repo: Path, relpath: str) -> Optional[str]:
+def staged_file_text(repo: Path, relpath: str) -> str | None:
     proc = subprocess.run(
         ["git", "show", f":0:{relpath}"],
         cwd=repo,

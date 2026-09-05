@@ -17,13 +17,11 @@ from __future__ import annotations
 import io
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 from conftest import GATES_DIR
 from interpreter import (
     EXIT_UNSUPPORTED_INTERPRETER,
-    MINIMUM_PYTHON,
     require_python,
     unsupported_interpreter_message,
 )
