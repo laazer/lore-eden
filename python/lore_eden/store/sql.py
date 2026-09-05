@@ -33,6 +33,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, select
 
 from lore_eden.ledger import EntityType, LedgerEvent, LedgerSequenceConflict
+from lore_eden.usage import Measure, UsageRecord
 from lore_eden.store.records import (
     CursorRecord,
     CycleRecord,
@@ -798,3 +799,71 @@ class SqlLedgerStore:
         )
         row = self.session.exec(statement).first()
         return _to_ledger_event(row) if row is not None else None
+
+
+class UsageRow(SQLModel, table=True):
+    """One recorded spend.
+
+    ``amounts_json`` rather than columns per measure: one host counts four token
+    figures and another counts money, and a schema migration per measure a host
+    invents is a library asking to be forked.
+    """
+
+    __tablename__ = "lore_eden_usage"
+
+    id: int | None = Field(default=None, primary_key=True)
+    subject_id: str = Field(index=True)
+    group_key: str = Field(index=True)
+    amounts_json: str = "{}"
+    # Indexed because every cost question has a window in it, and a scan over
+    # all history to answer "last month" grows with the history rather than the
+    # month.
+    occurred_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+def _to_usage(row: UsageRow) -> UsageRecord:
+    stored = json.loads(row.amounts_json)
+    return UsageRecord(
+        subject_id=row.subject_id,
+        group_key=row.group_key,
+        amounts={Measure(name): value for name, value in stored.items()},
+        occurred_at=row.occurred_at,
+    )
+
+
+class SqlUsageStore:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def add_usage(self, record: UsageRecord) -> UsageRecord:
+        row = UsageRow(
+            subject_id=record.subject_id,
+            group_key=record.group_key,
+            amounts_json=json.dumps(
+                {str(measure): value for measure, value in record.amounts.items()},
+                sort_keys=True,
+            ),
+            occurred_at=record.occurred_at,
+        )
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return _to_usage(row)
+
+    def usage_for(
+        self,
+        group_keys: Sequence[str],
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> Mapping[str, Sequence[UsageRecord]]:
+        found: dict[str, list[UsageRecord]] = {group_key: [] for group_key in group_keys}
+        if not group_keys:
+            return {}
+        statement = select(UsageRow).where(UsageRow.group_key.in_(list(group_keys)))
+        if since is not None:
+            statement = statement.where(UsageRow.occurred_at >= since)
+        if until is not None:
+            statement = statement.where(UsageRow.occurred_at < until)
+        for row in self.session.exec(statement.order_by(UsageRow.occurred_at)).all():
+            found[row.group_key].append(_to_usage(row))
+        return found

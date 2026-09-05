@@ -36,6 +36,7 @@ from lore_eden.store.records import (
     WorkItemType,
 )
 from lore_eden.ledger import EntityType, LedgerEvent
+from lore_eden.usage import UsageRecord
 from lore_eden.workflow.approvals import Approval
 
 
@@ -278,3 +279,30 @@ class LedgerStore(Protocol):
         ...
 
     def event_by_idempotency_key(self, idempotency_key: str) -> "LedgerEvent | None": ...
+
+
+class UsageStore(Protocol):
+    """What was spent, and how to add it up over a window.
+
+    Two methods, and the read takes a collection of groups and a time range at
+    once — a cost dashboard asks about every service for last month in one
+    question, and a store that answered one group at a time would turn that into
+    a query per row of the table it is drawing.
+    """
+
+    def add_usage(self, record: "UsageRecord") -> "UsageRecord": ...
+
+    def usage_for(
+        self,
+        group_keys: Sequence[str],
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> Mapping[str, Sequence["UsageRecord"]]:
+        """Entries per group within the window, every key present.
+
+        The bounds are inclusive of ``since`` and exclusive of ``until``, so
+        consecutive windows tile without double-counting the boundary — the
+        arithmetic that otherwise makes one entry appear in both March and
+        April.
+        """
+        ...
