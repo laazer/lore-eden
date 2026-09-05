@@ -12,7 +12,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 from lore_eden.mcp.servers import (
     McpServerCreate,
     check_server,

@@ -8,9 +8,6 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
-from sqlmodel import Session, SQLModel, create_engine
-
 from lore_eden.store import (
     DEFAULT_STALE_AFTER,
     CursorRecord,
@@ -22,12 +19,12 @@ from lore_eden.store import (
 )
 from lore_eden.store.migrations import MIGRATIONS, run_migrations
 from lore_eden.store.sql import (
-    CursorRow,
-    RunRow,
     SqlCursorStore,
     SqlRunStore,
     enforce_sqlite_foreign_keys,
 )
+from sqlalchemy import inspect
+from sqlmodel import Session, SQLModel, create_engine
 
 STORES = ["memory", "sql"]
 

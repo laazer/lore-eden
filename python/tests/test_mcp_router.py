@@ -22,7 +22,6 @@ class TestTheDocumentedMounting:
     def test_mounting_under_a_prefix_works(self) -> None:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-
         from lore_eden.mcp import McpServer, ServerInfo, ToolRegistry, make_mcp_router
 
         registry = ToolRegistry()
@@ -44,7 +43,6 @@ class TestTheDocumentedMounting:
         import pytest
         from fastapi import FastAPI
         from fastapi.exceptions import FastAPIError
-
         from lore_eden.mcp import McpServer, ServerInfo, ToolRegistry, make_mcp_router
 
         app = FastAPI()

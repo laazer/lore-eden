@@ -33,8 +33,9 @@ the same with and without" a property a test can assert rather than a hope.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Mapping, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 Value = TypeVar("Value")
 

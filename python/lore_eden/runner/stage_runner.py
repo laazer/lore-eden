@@ -21,28 +21,27 @@ is the load-bearing default — see :mod:`lore_eden.runner.report`.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable
-
-import json
 
 from lore_eden.agents import (
     BridgeOutcome,
-    build_user_message,
     CliAdapter,
     InvocationRequest,
     PermissionBridge,
     PromptContext,
     build_invocation,
+    build_user_message,
     write_prompt_file,
 )
 from lore_eden.runner.registry import AgentBinding, AgentRegistry, AgentResolution
 from lore_eden.runner.report import ExplicitReportReader, ReportReader, StageReport
 from lore_eden.workflow.dispatch import DispatchResult, advance, block, start
-from lore_eden.workflow.terminal import is_terminal_stage
 from lore_eden.workflow.gates import GateRunResult, GatesConfig, run_gates
 from lore_eden.workflow.models import StageOutcome, WorkflowStageDef
+from lore_eden.workflow.terminal import is_terminal_stage
 
 
 @dataclass(frozen=True)

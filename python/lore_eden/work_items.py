@@ -27,8 +27,9 @@ declared it *done*, and the host says which those are.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 from lore_eden.cache import Cache, DerivedRead, DerivedReadRegistry, NullCache
 from lore_eden.store.records import (

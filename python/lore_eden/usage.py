@@ -38,9 +38,10 @@ extract**; a host that wants budget alerts is writing them, not adopting them.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping, NewType, Sequence
+from typing import Any, NewType
 
 from lore_eden.cache import Cache, NullCache
 from lore_eden.timestamps import utcnow

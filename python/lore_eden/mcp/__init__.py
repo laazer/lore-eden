@@ -36,7 +36,9 @@ from lore_eden.mcp.tools import (
 
 # PEP 562: bound rather than defined, because a package initialiser is for
 # re-exporting, not for behaviour. What it does is in `transports`.
-from lore_eden.mcp.transports import load_transport as __getattr__
+from lore_eden.mcp.transports import (
+    load_transport as __getattr__,  # noqa: F401 - PEP 562 hook, not an unused import
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import-time typing only
     from lore_eden.mcp.django_router import make_mcp_django_view

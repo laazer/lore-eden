@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from lore_eden.git import (
     GIT_CONFIG_ENV_PREFIXES,
     GIT_LOCATION_ENV_VARS,

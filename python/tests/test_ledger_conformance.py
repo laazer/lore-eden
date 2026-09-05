@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from lore_eden.ledger import (
@@ -43,9 +44,8 @@ AMENDED = EventType("amended")
 
 
 def _sql_store(url: str) -> Iterator[Any]:
-    from sqlmodel import Session, SQLModel, create_engine
-
     from lore_eden.store.sql import SqlLedgerStore
+    from sqlmodel import Session, SQLModel, create_engine
 
     engine = create_engine(url)
     SQLModel.metadata.create_all(engine)
@@ -263,9 +263,8 @@ class TestTheChainMakesItEvidence:
             store._events = rewritten
             return
 
-        from sqlmodel import select
-
         from lore_eden.store.sql import LedgerEventRow
+        from sqlmodel import select
 
         row = store.session.exec(
             select(LedgerEventRow).where(

@@ -17,7 +17,8 @@ SQLite-specific on purpose. The introspection could go through SQLAlchemy's
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import text
 from sqlmodel import Session

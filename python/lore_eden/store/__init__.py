@@ -27,8 +27,8 @@ from lore_eden.store.cursors import to_cursor_record, to_workflow_cursor
 from lore_eden.store.memory import (
     InMemoryCursorStore,
     InMemoryCycleStore,
-    InMemoryLedgerStore,
     InMemoryDependencyStore,
+    InMemoryLedgerStore,
     InMemoryRelationStore,
     InMemoryRunStore,
     InMemoryTagStore,

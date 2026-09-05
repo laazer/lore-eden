@@ -191,7 +191,7 @@ class ProcessSupervisor:
         )
 
     @staticmethod
-    def _pump(proc: subprocess.Popen[str], lines: "queue.Queue[str | None]") -> None:
+    def _pump(proc: subprocess.Popen[str], lines: queue.Queue[str | None]) -> None:
         """Move stdout onto the queue, then signal end with None."""
         try:
             if proc.stdout is not None:

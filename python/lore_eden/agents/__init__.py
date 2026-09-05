@@ -18,11 +18,11 @@ with one control plane's scope-rerouting, rework budgets, rate limits and
 telemetry. The protocol is the same everywhere; the policy never is.
 """
 
-from lore_eden.agents.bridge import PermissionBridge, BridgeOutcome
+from lore_eden.agents.bridge import BridgeOutcome, PermissionBridge
 from lore_eden.agents.invocation import (
+    DEFAULT_BINARIES,
     CliAdapter,
     CliInvocation,
-    DEFAULT_BINARIES,
     InvocationRequest,
     OutputFormat,
     UnsupportedInvocationError,
@@ -31,13 +31,6 @@ from lore_eden.agents.invocation import (
     claude_oauth_env,
     environment_for,
     resolve_binary,
-)
-from lore_eden.agents.prompts import (
-    PromptBuilder,
-    PromptContext,
-    StaticPrompt,
-    TemplatePrompt,
-    write_prompt_file,
 )
 from lore_eden.agents.policy import (
     PermissionDecision,
@@ -50,6 +43,13 @@ from lore_eden.agents.process import (
     ProcessResult,
     ProcessSupervisor,
     TimeoutKind,
+)
+from lore_eden.agents.prompts import (
+    PromptBuilder,
+    PromptContext,
+    StaticPrompt,
+    TemplatePrompt,
+    write_prompt_file,
 )
 from lore_eden.agents.protocol import (
     build_control_response,

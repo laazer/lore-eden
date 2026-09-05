@@ -6,7 +6,6 @@ the runner knows nothing about linters, and nothing about this repo's toolchain.
 
 from __future__ import annotations
 
-import os
 import sys
 
 import pytest

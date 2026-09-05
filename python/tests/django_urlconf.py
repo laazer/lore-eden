@@ -11,9 +11,8 @@ been run showed a mount that raises.
 from __future__ import annotations
 
 from django.urls import path
-from mcp_transport_fixtures import build_server, next_context
-
 from lore_eden.mcp import make_mcp_django_view
+from mcp_transport_fixtures import build_server, next_context
 
 urlpatterns = [
     path("mcp", make_mcp_django_view(build_server())),

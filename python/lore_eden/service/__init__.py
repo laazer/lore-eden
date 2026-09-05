@@ -34,13 +34,13 @@ from lore_eden.service.errors import (
 )
 from lore_eden.service.middleware import (
     HSTS_VALUE,
-    ScopeType,
     REQUEST_ID_HEADER,
     SECURITY_HEADERS,
     WRITE_METHODS,
     RateLimitMiddleware,
     RateLimitRule,
     RequestIDMiddleware,
+    ScopeType,
     SecurityHeadersMiddleware,
 )
 from lore_eden.service.pagination import (

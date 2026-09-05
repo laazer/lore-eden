@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from lore_eden.agents import (
     CliAdapter,
     InvocationRequest,

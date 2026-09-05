@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from lore_eden.agents import PermissionBridge, PromptContext, StaticPrompt, allow_all
+from lore_eden.agents import PermissionBridge, StaticPrompt, allow_all
 from lore_eden.runner import (
     AgentBinding,
     AgentRegistry,

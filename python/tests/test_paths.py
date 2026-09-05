@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from lore_eden.paths import (
     expand_path,
     resolve_sqlite_path,

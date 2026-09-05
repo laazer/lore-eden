@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 import structlog.contextvars
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import StreamingResponse
-
 from lore_eden.service import (
     HSTS_VALUE,
     REQUEST_ID_HEADER,
@@ -18,6 +14,8 @@ from lore_eden.service import (
     RequestIDMiddleware,
     SecurityHeadersMiddleware,
 )
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import StreamingResponse
 
 
 class TestRequestId:

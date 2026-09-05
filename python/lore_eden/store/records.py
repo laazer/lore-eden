@@ -25,10 +25,11 @@ prevents it writing a final status.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Mapping, NewType
+from typing import Any, NewType
 from uuid import uuid4
 
 #: Re-exported: `utcnow` is part of this module's published surface, and the
@@ -110,7 +111,7 @@ class RunRecord:
             return RunStatus.ABANDONED
         return RunStatus.RUNNING
 
-    def beat(self, now: datetime | None = None) -> "RunRecord":
+    def beat(self, now: datetime | None = None) -> RunRecord:
         return replace(self, heartbeat_at=now or utcnow())
 
     def finish(
@@ -121,7 +122,7 @@ class RunRecord:
         summary: str = "",
         reason: str = "",
         now: datetime | None = None,
-    ) -> "RunRecord":
+    ) -> RunRecord:
         moment = now or utcnow()
         return replace(
             self,
@@ -163,6 +164,13 @@ class CursorRecord:
 #: names the concept, costs nothing at runtime, and still lets a host bring its
 #: own set: it constructs one from its enum's value at the edge, once.
 WorkItemState = NewType("WorkItemState", str)
+
+
+#: "no state filter", as a value rather than a call in seven argument defaults.
+#: An empty state is not a state any host declares, so it reads as *unfiltered*
+#: wherever a filter is optional — and naming it says that, where a bare `""`
+#: left every reader to infer it.
+ANY_STATE = WorkItemState("")
 
 
 class WorkItemType(str, Enum):
@@ -225,7 +233,7 @@ class WorkItemRecord:
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
 
-    def touched(self, *, now: datetime | None = None) -> "WorkItemRecord":
+    def touched(self, *, now: datetime | None = None) -> WorkItemRecord:
         """A copy stamped as changed. Callers do not mutate records in place."""
         return replace(self, updated_at=as_utc(now) if now is not None else utcnow())
 

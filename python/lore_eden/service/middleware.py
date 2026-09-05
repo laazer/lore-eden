@@ -39,8 +39,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from enum import Enum
-from typing import Any, Awaitable, Callable, Iterable, Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

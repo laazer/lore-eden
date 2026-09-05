@@ -12,10 +12,6 @@ pragma's *value* or the rebuild's *effect*, never that a statement was issued.
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, create_engine
-
 from lore_eden.store.migration_utils import (
     add_columns_if_missing,
     column_is_nullable,
@@ -26,6 +22,9 @@ from lore_eden.store.migration_utils import (
 )
 from lore_eden.store.migrations import Migration, foreign_keys_disabled, run_migrations
 from lore_eden.store.sql import enforce_sqlite_foreign_keys
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, create_engine
 
 
 @pytest.fixture

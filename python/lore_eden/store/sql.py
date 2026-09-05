@@ -23,18 +23,18 @@ enforced mid-rebuild fails against rows that are about to be fine.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Mapping, Sequence
 
 from sqlalchemy import UniqueConstraint, event
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Field, Session, SQLModel, select
 
 from lore_eden.ledger import EntityType, LedgerEvent, LedgerSequenceConflict
-from lore_eden.usage import Measure, UsageRecord
 from lore_eden.store.records import (
+    ANY_STATE,
     CursorRecord,
     CycleRecord,
     RelationKind,
@@ -46,7 +46,7 @@ from lore_eden.store.records import (
     WorkItemType,
     utcnow,
 )
-
+from lore_eden.usage import Measure, UsageRecord
 
 _FK_LISTENER_REGISTERED = False
 
@@ -491,7 +491,7 @@ class SqlWorkItemStore:
         self,
         *,
         item_type: WorkItemType | None = None,
-        state: WorkItemState = WorkItemState(""),
+        state: WorkItemState = ANY_STATE,
         cycle_id: str = "",
         parent_id: str = "",
         limit: int = 100,
@@ -582,7 +582,7 @@ class SqlCycleStore:
         return replace(record)
 
     def list_cycles(
-        self, *, state: WorkItemState = WorkItemState("")
+        self, *, state: WorkItemState = ANY_STATE
     ) -> Sequence[CycleRecord]:
         statement = select(CycleRow)
         if state:

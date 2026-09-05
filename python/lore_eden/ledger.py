@@ -38,9 +38,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any, Callable, Mapping, NewType, Sequence, TypeVar
+from typing import Any, NewType, TypeVar
 
 from lore_eden.cache import Cache, NullCache
 from lore_eden.timestamps import utcnow

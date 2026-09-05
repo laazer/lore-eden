@@ -87,7 +87,7 @@ def run_git(
     capture_output: bool = True,
     text: bool = True,
     timeout: float | None = None,
-) -> "subprocess.CompletedProcess[str]":
+) -> subprocess.CompletedProcess[str]:
     """Run ``git *args`` with the repo-binding variables removed.
 
     The parameters are named rather than a ``**kwargs`` passthrough. The source
@@ -121,7 +121,7 @@ def run_gh(
     capture_output: bool = True,
     text: bool = True,
     timeout: float | None = None,
-) -> "subprocess.CompletedProcess[str]":
+) -> subprocess.CompletedProcess[str]:
     """Run ``gh *args`` with the same scrub.
 
     Separate from :func:`run_git` rather than a ``binary`` parameter, because

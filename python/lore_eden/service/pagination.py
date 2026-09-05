@@ -39,8 +39,9 @@ loremaker's `DataPage` carries `page_count` alongside `previous_token`,
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import Enum
-from typing import Generic, Sequence, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, Field
 

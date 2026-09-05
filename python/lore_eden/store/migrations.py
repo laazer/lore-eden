@@ -24,9 +24,9 @@ the pragma's value rather than trusting the statement to have worked.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterator, Sequence
 
 from sqlalchemy import text
 from sqlmodel import Session

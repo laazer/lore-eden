@@ -20,7 +20,8 @@ The payoff bridgepath's own docstring names: no try/except in any router.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 #: HTTP status for each error class. The only place in this package that knows
 #: an HTTP status exists, which is the point.
