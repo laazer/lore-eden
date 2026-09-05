@@ -32,6 +32,7 @@ from lore_eden.store.memory import (
     InMemoryRelationStore,
     InMemoryRunStore,
     InMemoryTagStore,
+    InMemoryUsageStore,
     InMemoryWorkItemStore,
 )
 from lore_eden.store.protocols import (
@@ -43,6 +44,7 @@ from lore_eden.store.protocols import (
     RelationStore,
     RunStore,
     TagStore,
+    UsageStore,
     WorkItemStore,
 )
 from lore_eden.store.records import (
@@ -75,6 +77,7 @@ __all__ = [
     "InMemoryRelationStore",
     "InMemoryRunStore",
     "InMemoryTagStore",
+    "InMemoryUsageStore",
     "LedgerStore",
     "InMemoryWorkItemStore",
     "RelationKind",
@@ -84,6 +87,7 @@ __all__ = [
     "RunStatus",
     "RunStore",
     "TagStore",
+    "UsageStore",
     "WorkItemRecord",
     "WorkItemStore",
     "WorkItemType",

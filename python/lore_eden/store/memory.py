@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from typing import Mapping, Sequence
 
 from lore_eden.ledger import EntityType, LedgerEvent, LedgerSequenceConflict
+from lore_eden.usage import UsageRecord
 from lore_eden.store.records import (
     CursorRecord,
     CycleRecord,
@@ -352,3 +353,32 @@ class InMemoryLedgerStore:
             if event.idempotency_key == idempotency_key:
                 return event
         return None
+
+
+class InMemoryUsageStore:
+    """Usage entries in a list."""
+
+    def __init__(self) -> None:
+        self._records: list[UsageRecord] = []
+
+    def add_usage(self, record: UsageRecord) -> UsageRecord:
+        self._records.append(record)
+        return record
+
+    def usage_for(
+        self,
+        group_keys: Sequence[str],
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> Mapping[str, Sequence[UsageRecord]]:
+        wanted = set(group_keys)
+        found: dict[str, list[UsageRecord]] = {group_key: [] for group_key in wanted}
+        for record in self._records:
+            if record.group_key not in wanted:
+                continue
+            if since is not None and record.occurred_at < since:
+                continue
+            if until is not None and record.occurred_at >= until:
+                continue
+            found[record.group_key].append(record)
+        return found

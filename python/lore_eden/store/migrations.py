@@ -131,6 +131,14 @@ def _0005_create_ledger_table(session: Session) -> None:
     )
 
 
+def _0006_create_usage_table(session: Session) -> None:
+    """The usage table. Guarded by ``create_all``, which creates only what is
+    missing."""
+    from lore_eden.store.sql import UsageRow  # noqa: F401
+
+    UsageRow.metadata.create_all(session.get_bind(), tables=[UsageRow.__table__])
+
+
 #: In order. Append; never edit an entry that has shipped.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration("0001", "Create the cursor and run tables", _0001_create_cursors_and_runs),
@@ -138,6 +146,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration("0003", "Runs carry an attempt number", _0003_runs_carry_an_attempt),
     Migration("0004", "Create the work-item tables", _0004_create_work_item_tables),
     Migration("0005", "Create the ledger table", _0005_create_ledger_table),
+    Migration("0006", "Create the usage table", _0006_create_usage_table),
 )
 
 
