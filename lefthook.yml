@@ -52,6 +52,17 @@ pre-commit:
       run: python3 gates/lore_eden_gates/pylint_diff_filter.py {staged_files}
     # <<< lore-eden gate guardrails (managed) <<<
 
+    # Outside the managed block on purpose: install-workspace-hooks.sh rewrites
+    # everything between the markers, and this is lore-eden's own check rather
+    # than one of the shared gates it installs elsewhere.
+    ruff-policy:
+      name: Ruff, against the policy this repo publishes
+      # The policy file itself is in the glob: tightening a rule can make a
+      # clean tree dirty without a single .py changing, and a check that only
+      # watches .py would not notice until CI.
+      glob: "{*.py,**/*.py,policy/ruff-base.toml}"
+      run: bash .lefthook/scripts/ruff-policy.sh
+
 # Sequential on purpose: both commands drive pytest, and two suites competing for
 # the same cores is slower than running them in turn — and a pre-push people wait
 # for is the only kind that stays installed.
