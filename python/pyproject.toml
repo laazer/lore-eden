@@ -2,13 +2,41 @@
 name = "lore-eden"
 version = "0.1.0"
 description = "A harness for driving agents and agent workflows: MCP transport, an external-server registry, and health checks"
+readme = "README.md"
 requires-python = ">=3.10"
+# The SPDX expression, matching the AGPL-3.0 LICENSE at the repository root.
+# Without it a built wheel carries no licence field at all, which is the one
+# piece of metadata a consumer's compliance tooling actually reads.
+license = "AGPL-3.0-or-later"
+# A copy, because setuptools will not reach outside the project directory —
+# `../LICENSE` was accepted without complaint and shipped nothing, which is a
+# licence field with no licence behind it. `test_packaging.py` asserts the copy
+# still matches the root file so the two cannot drift.
+license-files = ["LICENSE"]
+authors = [{ name = "laazer" }]
+keywords = ["agents", "mcp", "workflow", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Typing :: Typed",
+]
+
 dependencies = [
     "fastapi>=0.115.0",
     "pydantic>=2.9.0",
     "httpx>=0.27.0",
     "pyyaml>=6.0.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/laazer/lore-eden"
+Repository = "https://github.com/laazer/lore-eden"
+Issues = "https://github.com/laazer/lore-eden/issues"
 
 [project.optional-dependencies]
 # The workflow engine, the agent harness and the runner need no database. Only
@@ -46,6 +74,9 @@ security = [
 ]
 dev = [
     "pytest>=8.3.0",
+    # tomllib is 3.11+, and this package floors at 3.10. The packaging tests
+    # read pyproject.toml, so they need a reader that exists on the floor.
+    "tomli>=2.0.1",
     # TestClient needs it; not a runtime dependency of the library itself.
     "httpx>=0.27.0",
     "sqlmodel>=0.0.22",
@@ -61,6 +92,10 @@ dev = [
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+# `lore_eden*` only. The gate library in gates/ is deliberately outside this
+# wheel: it is invoked by path from a checkout — the installed lefthook block
+# runs `python3 <checkout>/gates/lore_eden_gates/*.py` — and shipping it inside
+# an importable package would imply a second, unsupported way to reach it.
 [tool.setuptools.packages.find]
 include = ["lore_eden*"]
 
