@@ -245,3 +245,76 @@ def test_grading_nothing_says_why_when_everything_was_exempt(nested_repo):
     assert result.returncode == 0
     assert "exempt from this gate" in result.stdout, result.stdout
     assert "2 file(s) exempt" in result.stdout
+
+
+class TestEveryHookCommandNamesSomethingThatExists:
+    """lefthook.yml is configuration, and configuration rots quietly.
+
+    A command whose script was renamed or deleted does not fail loudly: lefthook
+    reports the non-zero exit of a missing file, which reads like a failing check
+    rather than a broken one — and a `glob` that matches nothing skips silently,
+    which reads like a passing one.
+
+    This repository has already had the strongest version of that problem: the
+    whole `pre-commit` block was committed and never installed, so every command
+    in it ran on nothing for months.
+    """
+
+    @staticmethod
+    def hook_commands() -> list[tuple[str, str, str]]:
+        """Every (stage, name, run-line) in the committed config.
+
+        Parsed by hand rather than with a YAML library: the gates package takes
+        no dependencies, which is the point of it being installable into any
+        workspace.
+        """
+        import re
+        from pathlib import Path
+
+        text = (Path(__file__).resolve().parents[2] / "lefthook.yml").read_text(encoding="utf-8")
+        found: list[tuple[str, str, str]] = []
+        stage = ""
+        name = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if re.fullmatch(r"[a-z-]+:", stripped) and not line.startswith(" "):
+                stage = stripped[:-1]
+            elif re.fullmatch(r"[a-z0-9-]+:", stripped) and line.startswith("    ") and stage:
+                name = stripped[:-1]
+            elif stripped.startswith("run:") and stage and name:
+                found.append((stage, name, stripped[len("run:") :].strip()))
+        return found
+
+    def test_the_config_declares_both_stages(self) -> None:
+        stages = {stage for stage, _, _ in self.hook_commands()}
+
+        assert stages == {"pre-commit", "pre-push"}
+
+    def test_every_run_line_points_at_a_file_that_exists(self) -> None:
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        missing = []
+        for stage, name, run in self.hook_commands():
+            for token in run.split():
+                if "/" not in token or token.startswith("{"):
+                    continue
+                if not (root / token).exists():
+                    missing.append(f"{stage}.{name} -> {token}")
+
+        assert missing == []
+
+    def test_the_pre_push_scripts_are_executable(self) -> None:
+        """A script committed without its bit set fails at push time with a
+        permission error, which names the file but not the cause."""
+        import os
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        not_executable = [
+            path.name
+            for path in (root / ".lefthook" / "scripts").glob("*.sh")
+            if not os.access(path, os.X_OK)
+        ]
+
+        assert not_executable == []
