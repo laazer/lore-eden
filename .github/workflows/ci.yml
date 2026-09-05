@@ -298,3 +298,30 @@ jobs:
 
       - name: Managed hook block is current
         run: gates/scripts/install-workspace-hooks.sh --check "$PWD"
+
+      # Positive control first, for the reason every control in this job runs
+      # first: ruff exits 0 both when the tree is clean and when it was pointed
+      # at nothing, and those look identical in a log.
+      - name: Positive control — a planted violation must fail the policy
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)"
+          cat > "$control/planted.py" <<'PY'
+          from typing import Optional
+
+
+          def load(raw: str) -> Optional[str]:
+              return raw
+          PY
+          if ruff check --config policy/ruff-base.toml "$control/planted.py"; then
+            echo "::error::the ruff policy passed a planted UP045 violation; it is not being applied"
+            exit 1
+          fi
+          echo "control failed as required"
+
+      # The tree, whole, under the policy it publishes. Not diff-scoped: the six
+      # gates above are, because a whole-file check on pre-existing hits fails
+      # every unrelated edit — but lor-extract-lore-45 and -47 cleaned this tree,
+      # so a whole-tree run passes today and can only fail on something new.
+      - name: This repo under the ruff policy it publishes
+        run: ruff check --config policy/ruff-base.toml gates python
