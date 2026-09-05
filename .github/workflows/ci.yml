@@ -325,3 +325,76 @@ jobs:
       # so a whole-tree run passes today and can only fail on something new.
       - name: This repo under the ruff policy it publishes
         run: ruff check --config policy/ruff-base.toml gates python
+
+  # An editable install is exercised by every job above; a distributable is not
+  # exercised by any of them, and until this existed none had ever been built.
+  # The failure mode is quiet: metadata a consumer reads goes missing without
+  # anything erroring — `license-files = ["../LICENSE"]` was accepted by
+  # setuptools and shipped no licence at all.
+  package:
+    name: the wheel builds and installs clean
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The floor. A wheel that only builds on a modern interpreter is a
+          # wheel the declared requires-python is lying about.
+          python-version: "3.10"
+
+      - name: Build the sdist and wheel
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build --outdir dist .
+          python -m twine check dist/*
+
+      - name: The licence is in the artifact, not only in the metadata
+        working-directory: python
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          wheel = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          licences = [n for n in names if "LICENSE" in n.upper()]
+          if not licences:
+              raise SystemExit(
+                  "the wheel declares a licence and ships none — see "
+                  "tests/test_packaging.py for why this is checked here"
+              )
+          print("licence shipped:", licences)
+          PY
+
+      # Installed from the artifact into an empty environment, with the source
+      # tree deliberately not on the path: importing from `python/` would pass
+      # whether the wheel contained the package or not.
+      - name: Install the wheel into a clean environment and import it
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet python/dist/*.whl
+          cd /tmp
+          /tmp/clean/bin/python - <<'PY'
+          import importlib.util as util
+
+          import lore_eden.agents
+          import lore_eden.cache
+          import lore_eden.ledger
+          import lore_eden.mcp.protocol
+          import lore_eden.usage
+          import lore_eden.work_items
+          import lore_eden.workflow
+
+          print("core imports: ok")
+
+          # The extras boundary, tested against the artifact rather than the
+          # source tree, where the import-graph tests already assert it.
+          assert util.find_spec("sqlmodel") is None, "sql extra leaked into the base install"
+          try:
+              import lore_eden.store.sql
+          except ModuleNotFoundError as exc:
+              print("store.sql correctly requires the sql extra:", exc.name)
+          else:
+              raise SystemExit("store.sql imported without the sql extra")
+          PY
