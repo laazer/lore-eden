@@ -44,6 +44,21 @@ at `xs`. That is unusual and it is deliberate; changing it would silently drop
 values at sizes their authors never named. Distinguish a decision you disagree
 with from a defect, and carry the first across with the reasoning attached.
 
+## Setup
+
+Once per checkout — and this repo is worked in git worktrees, so that is more
+often than once per clone:
+
+```bash
+bash scripts/bootstrap-worktree.sh
+```
+
+It builds `python/.venv` on a 3.10+ interpreter, installs the package with its
+dev extra plus the `ruff` and `pylint` the diff filters drive, runs `npm ci` in
+`gates/` for the TypeScript gate's parser, and runs `lefthook install`. None of
+those three is tracked, so none survives a fresh worktree or a `git reset
+--hard`. It is idempotent; re-run it after either.
+
 ## Checks
 
 Each package is checked independently, and CI runs all three:
@@ -68,11 +83,8 @@ is how one that has been growing unchecked finally gets split.
 
 ## Hooks
 
-Install them once per clone. Nothing does it for you:
-
-```bash
-lefthook install
-```
+`scripts/bootstrap-worktree.sh` installs them, or `lefthook install` on its own
+if the rest of the checkout is already set up.
 
 **pre-commit** runs the six gates over your staged files — seconds, except the
 Pylint statement filter, which is most of the minute the whole stage takes.
@@ -91,6 +103,13 @@ what a given range would select.
 The hooks invoke a bare `python3`, which is whichever one is first on your PATH.
 If it predates 3.10 the gates refuse by name and tell you so — they need AST node
 types that do not exist before then.
+
+The pre-push gate suite prefers `python/.venv` and falls back to any interpreter
+on PATH that is 3.10+ *and* has pytest, saying which one it used. It does not
+need the editable install: `gates/tests/conftest.py` puts the gate package on
+`sys.path` itself and nothing under `gates/` imports `lore_eden`. When no
+interpreter qualifies it refuses rather than skipping — a pre-push that skips is
+indistinguishable from one that passed.
 
 **Nothing detects that you skipped `lefthook install`**, and that is not an
 oversight to fix later: a hook cannot notice its own absence. This repository ran
