@@ -55,6 +55,7 @@ class ManagedGate(NamedTuple):
 PY_GLOB = "{*.py,**/*.py}"
 TS_GLOB = "{*.ts,*.tsx,**/*.ts,**/*.tsx}"
 CSS_GLOB = "{*.css,**/*.css}"
+SH_GLOB = "{*.sh,**/*.sh}"
 
 #: Every gate whose rules hold in any repo. The two the predecessor never
 #: installed — git-subprocess routing and defensive normalization — are here:
@@ -106,6 +107,16 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
         "python3",
         "css_organization_check.py",
         CSS_GLOB,
+    ),
+    # Shell scripts, the other file type nothing graded — including, in this
+    # repo, the two scripts git itself executes on every commit and push.
+    # shellcheck arrives as a pip wheel, so this needs no system package.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-sh-shellcheck",
+        "Shell script analysis (shellcheck)",
+        "python3",
+        "sh_shellcheck_check.py",
+        SH_GLOB,
     ),
     # The two diff filters. They were written, tested by nothing and installed
     # nowhere — 423 lines the README described as "supporting, not installed as

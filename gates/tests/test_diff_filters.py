@@ -115,12 +115,13 @@ class TestTheyAreActuallyInstalled:
         assert "lore-eden-py-complexity" in MANAGED_COMMAND_NAMES
         assert "lore-eden-py-statements" in MANAGED_COMMAND_NAMES
 
-    def test_the_managed_set_is_eight(self) -> None:
+    def test_the_managed_set_is_nine(self) -> None:
         # Pinned so a gate cannot be dropped from the installer without a test
-        # saying so — which is how these two came to be unwired. Eight since
-        # the CSS gate: stylesheets matched no glob, so a commit touching only
-        # `.css` ran the whole stage over nothing and passed.
-        assert len(MANAGED_COMMAND_NAMES) == 8
+        # saying so — which is how these two came to be unwired. Nine since
+        # the CSS and shell gates: stylesheets and shell scripts matched no
+        # glob, so a commit touching only those ran the whole stage over
+        # nothing and passed.
+        assert len(MANAGED_COMMAND_NAMES) == 9
 
     def test_ci_runs_every_managed_gate(self) -> None:
         """CI's self-grade job must name every gate the installer installs.

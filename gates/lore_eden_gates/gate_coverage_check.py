@@ -65,7 +65,9 @@ GATED_SUFFIXES: dict[str, str] = {
     "py_defensive_normalization_check",
     ".ts": "ts_organization_check",
     ".tsx": "ts_organization_check",
+    ".cjs": "ts_organization_check",
     ".css": "css_organization_check",
+    ".sh": "sh_shellcheck_check",
 }
 
 

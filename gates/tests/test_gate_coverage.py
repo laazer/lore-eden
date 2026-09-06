@@ -31,10 +31,10 @@ class TestUncovered:
         assert uncovered(["app/x.py", "app/y.tsx", "app/z.css"], {}) == []
 
     def test_an_ungated_suffix_with_no_exemption_is_reported(self):
-        assert uncovered(["deploy.sh", "notes.md"], {}) == ["deploy.sh", "notes.md"]
+        assert uncovered(["CHANGELOG.rst", "notes.md"], {}) == ["CHANGELOG.rst", "notes.md"]
 
     def test_an_exemption_by_glob_covers_it(self):
-        assert uncovered(["notes.md", "deploy.sh"], {"*.md": "prose"}) == ["deploy.sh"]
+        assert uncovered(["notes.md", "CHANGELOG.rst"], {"*.md": "prose"}) == ["CHANGELOG.rst"]
 
     def test_an_exemption_matches_on_the_bare_name_too(self):
         # `LICENSE` at the root and `python/LICENSE` are the same decision, and
@@ -100,18 +100,18 @@ def config(**ungated: str) -> str:
 class TestEndToEnd:
     def test_it_fails_on_an_uncovered_file_and_names_it(self, repo):
         repo.write(".lore-eden-gates.json", config())
-        repo.write("deploy.sh", "echo hi\n")
-        repo.commit("script")
+        repo.write("CHANGELOG.rst", "notes\n")
+        repo.commit("doc")
         result = repo.gate("gate_coverage_check.py", "--repo", str(repo.root))
         out = result.stdout + result.stderr
         assert result.returncode == 1, out
-        assert "deploy.sh" in out
+        assert "CHANGELOG.rst" in out
         assert "1 uncovered" in out
 
     def test_it_passes_once_the_decision_is_recorded(self, repo):
-        repo.write("deploy.sh", "echo hi\n")
-        repo.write(".lore-eden-gates.json", config(**{"*.sh": "shellcheck is not a dependency here"}))
-        repo.commit("script")
+        repo.write("CHANGELOG.rst", "notes\n")
+        repo.write(".lore-eden-gates.json", config(**{"*.rst": "prose, like the markdown beside it"}))
+        repo.commit("doc")
         result = repo.gate("gate_coverage_check.py", "--repo", str(repo.root))
         out = result.stdout + result.stderr
         assert result.returncode == 0, out
@@ -142,13 +142,16 @@ class TestEndToEnd:
         repo.write(".lore-eden-gates.json", config())
         repo.write("app/x.py", "A = 1\n")
         repo.commit("code")
-        (Path(repo.root) / "untracked.sh").write_text("echo hi\n", encoding="utf-8")
+        (Path(repo.root) / "untracked.rst").write_text("notes\n", encoding="utf-8")
         result = repo.gate("gate_coverage_check.py", "--repo", str(repo.root))
         assert result.returncode == 0, result.stdout + result.stderr
 
-    def test_css_is_among_the_suffixes_a_gate_now_grades(self):
-        # The regression this whole change is about.
+    def test_the_three_formerly_ungraded_suffixes_are_covered(self):
+        # The regression this whole change is about, plus the two gaps that
+        # were first recorded as exemptions and then closed rather than left.
         assert ".css" in GATED_SUFFIXES
+        assert ".sh" in GATED_SUFFIXES
+        assert ".cjs" in GATED_SUFFIXES
 
     def test_tracked_paths_reads_real_git(self, repo):
         repo.write("app/x.py", "A = 1\n")

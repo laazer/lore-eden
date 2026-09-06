@@ -265,6 +265,31 @@ Point the token rules at whatever file defines the repo's custom properties — 
 
 Without it those two rules are off, and the gate says so on every run.
 
+## Shell
+
+`sh_shellcheck_check` drives shellcheck over `.sh`, diff-scoped like the rest.
+It closed a gap the coverage check below had recorded as an exemption: nine
+tracked scripts, two of them the ones git executes on every commit and push,
+and nothing that had ever read one.
+
+shellcheck arrives as a pip wheel (`shellcheck-py`), so this needs no system
+package — the same shape as the two diff filters, which drive `ruff` and
+`pylint`. Absent, it refuses rather than reporting no findings: "the linter is
+not installed" and "the scripts are clean" produce identical output.
+
+Two flags are load-bearing, and neither is optional. Without `-x` shellcheck
+will not open a `source`d file and reports SC1091 on every script that has one.
+Without `--source-path=SCRIPTDIR` it resolves the `# shellcheck source=`
+directive against the current directory rather than the script's own, and still
+cannot find it. The pair is the difference between three notes nobody can act on
+and a clean run.
+
+Findings at `error`, `warning` and `info` fail; `style` does not. `info` is in
+deliberately: SC2086 — an unquoted variable that word-splits, the most common
+shell defect there is — is `info`, and shellcheck's gcc format collapses `info`
+and `style` into one label. A first draft read gcc output, excluded notes, and
+passed a planted `rm $UNQUOTED`. Reading JSON is what makes the two separable.
+
 ## Is anything looking at this file at all?
 
 `gate_coverage_check` asks the question one level up from the others. It reads

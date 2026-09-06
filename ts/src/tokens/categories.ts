@@ -27,7 +27,7 @@ export const surfaces = valuesOf(
 );
 export const lines = valuesOf(pick('border', 'border2'));
 export const accent = valuesOf(pick('accent', 'accentBright', 'accentDeep'));
-export const status = valuesOf(pick('ok', 'warn', 'crit'));
+export const status = valuesOf(pick('ok', 'info', 'warn', 'crit'));
 export const text = valuesOf(pick('text', 'dim', 'faint', 'onAccent'));
 
 export const colors = {
@@ -41,7 +41,7 @@ export const colors = {
 
 export const typography = valuesOf(
   pick(
-    'fontUi', 'fontMono',
+    'fontUi', 'fontMono', 'fontDisplay',
     'fsDisplay', 'fsH1', 'fsH2', 'fsBody', 'fsLabel', 'fsMicro',
     'fwReg', 'fwMed', 'fwSemi', 'fwBold',
   ),

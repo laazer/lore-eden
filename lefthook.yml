@@ -64,6 +64,11 @@ pre-commit:
       priority: 1
       glob: "{*.css,**/*.css}"
       run: python3 gates/lore_eden_gates/css_organization_check.py {staged_files}
+    lore-eden-sh-shellcheck:
+      name: Shell script analysis (shellcheck) (lore-eden)
+      priority: 1
+      glob: "{*.sh,**/*.sh}"
+      run: python3 gates/lore_eden_gates/sh_shellcheck_check.py {staged_files}
     lore-eden-py-complexity:
       name: Python complexity growth (Ruff C901, diff-scoped) (lore-eden)
       priority: 1

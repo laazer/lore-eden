@@ -86,7 +86,7 @@ is how one that has been growing unchecked finally gets split.
 `scripts/bootstrap-worktree.sh` installs them, or `lefthook install` on its own
 if the rest of the checkout is already set up.
 
-**pre-commit** runs the six gates over your staged files — seconds, except the
+**pre-commit** runs the nine gates over your staged files — seconds, except the
 Pylint statement filter, which is most of the minute the whole stage takes.
 
 **pre-push** runs the python suite narrowed to the tests your commits can reach,
