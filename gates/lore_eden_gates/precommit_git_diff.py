@@ -13,13 +13,31 @@ shape either way.
 
 from __future__ import annotations
 
+import argparse
 import ast
+import io
+import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
+
+_GATE_SCRIPTS = Path(__file__).resolve().parent
+if str(_GATE_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_GATE_SCRIPTS))
+
+from interpreter import require_python  # noqa: E402 - sys.path is set up just above
+
+# At import, not inside `emit_scope_json`: `GateFileSelector` below is a runtime
+# expression spelling `Path | None`, which raises TypeError on 3.9 before any
+# entry point is reached. Every gate that imports this module already guards
+# first and this is a no-op for them; the one that does not is this module run
+# as `--emit-scope-json`, which the TypeScript gate invokes directly.
+require_python()
 
 HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
@@ -324,6 +342,12 @@ _UNTRACKED_SCOPES = (WORKTREE, SINCE)
 #: value is subject to trunk detection — see `effective_base_ref`.
 DEFAULT_BASE_REF = "main"
 
+#: Exit code for `--emit-scope-json` when the scope could not be resolved. Not
+#: 1: the caller has to tell "this run could not determine what to examine"
+#: apart from "this run graded files and found violations", which is the whole
+#: point of `UnexaminableError` existing.
+EXIT_UNEXAMINABLE = 3
+
 #: Trunk names to try when `DEFAULT_BASE_REF` names nothing in a repository.
 #: `origin/HEAD` is consulted first; these are the fallbacks for a checkout
 #: with no remote, which is what an agent worktree and a test fixture are.
@@ -387,7 +411,43 @@ def _run_git(args: list[str], repo: Path) -> str:
     return _git(["diff", *args], repo)
 
 
+def unborn_worktree(repo: Path, diff_scope: str) -> bool:
+    """Whether this scope has no ref to diff against, because nothing is committed.
+
+    `git diff HEAD` cannot resolve in a repository with no commits, so every
+    ref-based query below has to answer without one. `git_changed_paths` always
+    did; the other four did not: discovery found the untracked files, printed
+    `examined 1 file(s)`, and the next call died with "cannot determine what to
+    examine" — a gate that announces it read a file and then refuses to grade it.
+
+    Only the worktree scope is covered. `--cached` resolves fine against an
+    unborn HEAD, and a caller that named `--base` or `--since` asked for a ref
+    that has to exist — substituting emptiness there would grade against a base
+    nobody chose, which is the failure this file exists to prevent.
+
+    Every caller returns its own empty value rather than sharing one, because
+    what "empty" means differs: no diff text, no added paths, no counts. They
+    are safe to return only because an unborn repository has every path
+    untracked, and `DiffScope.touched_lines` grades an untracked file whole.
+    """
+    return diff_scope == WORKTREE and not git_has_head(repo)
+
+
 def git_diff_cached(repo: Path, diff_scope: str = STAGED, base_ref: str = "main") -> str:
+    """The unified diff this scope describes, or empty where there is none to take.
+
+    The unborn-HEAD guard mirrors `git_changed_paths`, which has had it all
+    along — the asymmetry is the defect. Returning no diff is safe *here
+    specifically*, and only because of what the caller does with it: in a
+    repository with no commits every path is untracked, and
+    `DiffScope.touched_lines` already grades an untracked file in its entirety
+    rather than scoping to changed lines. The empty diff narrows nothing. An
+    empty diff that *does* narrow is the vacuous pass this module exists to
+    prevent, so if a scope is ever added where an unborn HEAD does not imply
+    untracked, it must not reach this branch.
+    """
+    if unborn_worktree(repo, diff_scope):
+        return ""
     # The trailing `--` ends the revision list, so nothing derived from a ref can
     # be read as a pathspec.
     return _run_git([*_scope_args(diff_scope, base_ref), "--no-color", "-U0", "--"], repo)
@@ -426,7 +486,7 @@ def git_has_head(repo: Path) -> bool:
 
 def git_changed_paths(repo: Path, diff_scope: str = STAGED, base_ref: str = "main") -> list[str]:
     """Repo-relative paths this diff touches, for callers given no explicit file list."""
-    if diff_scope == WORKTREE and not git_has_head(repo):
+    if unborn_worktree(repo, diff_scope):
         return sorted(set(git_untracked_paths(repo)))
     out = _run_git(
         [*_scope_args(diff_scope, base_ref), "--name-only", "--diff-filter=ACMR", "--"], repo
@@ -776,6 +836,8 @@ def git_gitlink_paths(repo: Path, diff_scope: str, base_ref: str) -> list[str]:
     filter drops it (it is a directory), and the run prints ``examined 0
     file(s)`` and exits 0 — a change nobody graded, reported as a clean gate.
     """
+    if unborn_worktree(repo, diff_scope):
+        return []
     out = _run_git([*_scope_args(diff_scope, base_ref), "--raw", "--"], repo)
     found: list[str] = []
     for line in out.splitlines():
@@ -899,48 +961,43 @@ def diff_header_path(line: str) -> str | None:
     return name[2:] if name.startswith("b/") else None
 
 
-def diff_header_paths(diff: str) -> set[str]:
-    """Every relpath this diff text actually produced a file header for.
-
-    The other half of the question ``--numstat`` answers. A file git lists as
-    changed but never emits a header for is a file whose diff something
-    suppressed — see `suppressed_diff_paths`.
-    """
-    return {
-        path
-        for path in (
-            diff_header_path(line) for line in diff.splitlines() if line.startswith("+++ ")
-        )
-        if path is not None
-    }
-
-
 def suppressed_diff_paths(
     diff: str, numstat: DiffNumstat, candidates: Iterable[str]
 ) -> frozenset[str]:
-    """Candidate relpaths git changed but produced no hunk for — graded whole.
+    """Candidate relpaths whose diff did not describe the change git counted.
 
     This is the *mechanism* behind the ``.gitattributes`` hole rather than one
-    of its spellings. ``-diff``/``binary`` is the spelling git labels for us,
-    with ``-\\t-`` in ``--numstat``; ``diff=<driver>`` naming a command that
-    prints nothing, and a ``filter=`` that cleans a file to empty, are the same
-    suppression with real counts still reported, so the marker never fired and
-    all three gates printed ``examined 1 file(s)`` and a pass over a committed
-    violation. Asking the diff itself — *did you emit a header for this path* —
-    is the question that has one answer for every way of suppressing a diff,
-    including the next one.
+    of its spellings, and the question has moved twice as the spellings ran out.
+    ``-diff``/``binary`` is the one git labels for us, with ``-\t-`` in
+    ``--numstat``. A ``diff=<driver>`` printing nothing, and a ``filter=``
+    cleaning a file to empty, report real counts and no hunk. Asking "did the
+    diff emit a header for this path" closed those — and a driver that prints
+    the three header lines and exits walked straight through it.
 
-    Non-zero counts are the discriminator, and they are load-bearing in both
-    directions: a mode-only ``chmod`` reports ``0\\t0`` and legitimately has no
-    hunk, so it stays out; a rename's ``old => new`` operand never matches a
+    So the test is against the thing the gate actually depends on: git says N
+    lines were added, and the parser found M. If M is short of N the diff did
+    not describe the change, whatever it printed. That subsumes every earlier
+    spelling — no hunk and no header are both M=0 — and catches a *partial*
+    suppression that the header rule and a plain "found nothing" test would both
+    pass.
+
+    Strict comparison rather than ``M == 0`` was measured before it was chosen:
+    across the last 40 commits of the source repository, 215 paths, the parsed
+    count equalled the numstat count every time and differed never. A false
+    positive here grades a file whole, which is the safe direction, but a noisy
+    one — so it is worth knowing the two agree on healthy diffs rather than
+    assuming it.
+
+    A mode-only ``chmod`` reports ``0\t0`` and legitimately has no hunk, so
+    ``0 < 0`` keeps it out. A rename's ``old => new`` operand never matches a
     candidate relpath, so it stays out too (a pre-existing gap in the size
     checks, not one this widens).
     """
-    headers = diff_header_paths(diff)
+    parsed = parse_staged_additions(diff)
     return frozenset(
         path
         for path in candidates
-        if path not in headers and sum(numstat.counts.get(path, (0, 0))) > 0
+        if len(parsed.get(path, ())) < numstat.counts.get(path, (0, 0))[0]
     )
 
 
@@ -1031,7 +1088,12 @@ def git_added_paths(repo: Path, diff_scope: str = STAGED, base_ref: str = "main"
     That pair is indistinguishable from a mode-only ``chmod`` by counts alone,
     so counts alone cannot decide it. "It is new, so all of it is new" can.
     """
-    out = _run_git([*_scope_args(diff_scope, base_ref), "--name-only", "--diff-filter=A", "--"], repo)
+    if unborn_worktree(repo, diff_scope):
+        # Every path is untracked, which the caller already treats as whole-file.
+        return []
+    out = _run_git(
+        [*_scope_args(diff_scope, base_ref), "--name-only", "--diff-filter=A", "--"], repo
+    )
     return decoded_git_paths(out)
 
 
@@ -1043,7 +1105,14 @@ def git_diff_numstat(
     The counts drive "don't make it worse" checks (e.g. file-length caps) that
     should fire on net growth, not on any touch to an already-oversized file —
     otherwise a pure cleanup/shrink of a long file would itself get blocked.
+
+    Unborn HEAD is empty for the same reason `git_diff_cached` is: nothing is
+    committed, so there is no "already" to be worse than, and every file is
+    untracked and graded whole. Absent counts read as `(0, 0)` — a new file is
+    judged on its own size rather than on growth it cannot have.
     """
+    if unborn_worktree(repo, diff_scope):
+        return DiffNumstat({}, frozenset())
     out = _run_git([*_scope_args(diff_scope, base_ref), "--numstat", "--"], repo)
     counts: dict[str, tuple[int, int]] = {}
     undiffable: set[str] = set()
@@ -1071,3 +1140,167 @@ def staged_file_text(repo: Path, relpath: str) -> str | None:
     if proc.returncode != 0:
         return None
     return proc.stdout
+
+
+# --------------------------------------------------------------------------- #
+# `--emit-scope-json` — the scope, resolved once, for a gate in another language
+# --------------------------------------------------------------------------- #
+#
+# About 560 lines of `ts_organization_check.cjs` were a hand-port of this module:
+# the error classes, git-path decoding, env scrubbing, ref validation, scope
+# resolution, untracked discovery, submodule announcement and diff-suppression
+# detection. None of it was TypeScript-specific, and the two copies drifting
+# apart was itself a source of defects. A conformance table catches that drift
+# after the fact, on the repo states it enumerates; it does not remove the
+# surface, and every fix still had to be written twice.
+#
+# So the `.cjs` asks this instead. It already shells out to git repeatedly; one
+# more subprocess buys it a single implementation of scope policy.
+#
+# The language-specific half stays with the caller and is passed *in*: which
+# suffixes that gate grades, and which source root it confines discovery to.
+# That keeps the count honest — it is computed after the caller's own filter,
+# by the same code that computes it for the Python gates — without this module
+# needing to know what a TypeScript file is.
+
+
+def _suffix_selector(suffixes: frozenset[str], select_root: Path | None) -> GateFileSelector:
+    """Build the caller's file filter from flags rather than from knowledge here.
+
+    ``select_root`` is applied only when the run *discovered* its own
+    candidates, matching every gate's existing behaviour: an explicitly named
+    file was chosen by the caller (lefthook passes staged paths) and is not
+    second-guessed, while a path the scope turned up is confined to the source
+    root so a stray match elsewhere in the repo is not graded.
+    """
+
+    def select(repo: Path | None, candidates: Sequence[Path], discovered: bool) -> list[Path]:
+        chosen: list[Path] = []
+        for candidate in candidates:
+            if candidate.suffix not in suffixes:
+                continue
+            if discovered and select_root is not None:
+                # `located_path`, not `resolve()`: resolving the whole path
+                # follows a symlinked source out of the tree, drops it from the
+                # filter, and reports `examined 0` over a file the read guard
+                # was supposed to refuse. That is the vacuous pass this module's
+                # own docstring warns about.
+                try:
+                    located_path(candidate).relative_to(select_root)
+                except ValueError:
+                    continue
+            chosen.append(candidate)
+        return chosen
+
+    return select
+
+
+def emit_scope_json(argv: Sequence[str] | None = None) -> int:
+    """Print one JSON object describing what a gate run should examine.
+
+    Everything a gate needs before it can apply a single rule: the resolved
+    scope, the files that survived the caller's filter, which of them git is not
+    tracking, which of them git changed but would not diff, and the line numbers
+    the change touched in each.
+
+    Two things are deliberately *not* decided here, because they are the
+    caller's: which suffixes to grade, and what to do about the result. The
+    caller also prints `notices` itself rather than this process writing to the
+    terminal — stdout is the JSON channel, so the human-facing lines
+    `resolve_gate_scope` emits are captured and handed back to be printed in
+    the caller's own order.
+
+    An unresolvable scope exits `EXIT_UNEXAMINABLE` with the reason on the JSON,
+    not a traceback: the caller has its own sentence for "cannot determine what
+    to examine" and needs the message, not a Python stack.
+    """
+    parser = argparse.ArgumentParser(
+        prog="precommit_git_diff.py --emit-scope-json",
+        description="Resolve a gate run's scope and print it as JSON.",
+    )
+    parser.add_argument("--emit-scope-json", action="store_true", required=True)
+    parser.add_argument("--repo", default=None)
+    # No `choices=`: an unknown scope is rejected by `resolve_gate_scope`, which
+    # owns that rule and whose message says why it matters. Validating it twice
+    # is how the two copies start disagreeing.
+    parser.add_argument("--scope", dest="diff_scope", default=STAGED)
+    parser.add_argument("--base", dest="base_ref", default=DEFAULT_BASE_REF)
+    parser.add_argument("--label", default="gate")
+    parser.add_argument(
+        "--suffix",
+        action="append",
+        default=[],
+        help="File suffix this gate grades, with the dot (repeatable).",
+    )
+    parser.add_argument(
+        "--select-root",
+        default=None,
+        help="Confine discovered candidates to this directory.",
+    )
+    parser.add_argument("files", nargs="*")
+    args = parser.parse_args(list(argv) if argv is not None else sys.argv[1:])
+
+    repo = Path(args.repo).resolve() if args.repo else None
+    select_root = Path(args.select_root).resolve() if args.select_root else None
+    selector = _suffix_selector(frozenset(args.suffix), select_root)
+
+    # `resolve_gate_scope` prints the examined line (and any submodule notice)
+    # as it goes. Captured rather than suppressed: the caller still has to show
+    # them, and re-deriving the wording on the other side would reintroduce
+    # exactly the duplication this entry point exists to delete.
+    captured = io.StringIO()
+    try:
+        with redirect_stdout(captured):
+            run = resolve_gate_scope(
+                label=args.label,
+                repo=repo,
+                diff_scope=args.diff_scope,
+                base_ref=args.base_ref,
+                # Same reason as the selector above: `resolve()` here hands
+                # the caller the symlink's *target*, so a link pointing out of
+                # the repository arrives as an ordinary file and the caller's
+                # read guard has nothing left to refuse. The link's own path is
+                # what git spells and what must be graded.
+                explicit_files=[located_path(Path(f)) for f in args.files],
+                select=selector,
+            )
+    except UnexaminableError as exc:
+        json.dump({"error": str(exc), "notices": captured.getvalue().splitlines()}, sys.stdout)
+        sys.stdout.write("\n")
+        return EXIT_UNEXAMINABLE
+
+    json.dump(
+        {
+            "notices": captured.getvalue().splitlines(),
+            "scope": {
+                "diff_scope": run.scope.diff_scope,
+                "base_ref": run.scope.base_ref,
+                "description": run.scope.description,
+                "degraded": run.scope.degraded,
+                "includes_untracked": run.scope.includes_untracked,
+            },
+            "files": [str(path) for path in run.files],
+            "untracked": sorted(run.untracked),
+            # Graded whole: git changed them but produced no usable diff.
+            "undiffable": sorted(run.numstat.undiffable),
+            "additions": {rel: sorted(lines) for rel, lines in run.additions.items()},
+            # (added, deleted) per relpath — the caller's "is this file growing?"
+            "counts": {rel: list(pair) for rel, pair in run.numstat.counts.items()},
+        },
+        sys.stdout,
+    )
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    # Importable as a library (every gate does) and runnable as this one entry
+    # point. Guarded on the flag so a future second mode has to be added
+    # deliberately rather than by accident.
+    if "--emit-scope-json" in sys.argv[1:]:
+        raise SystemExit(emit_scope_json())
+    print(
+        "precommit_git_diff.py is a library; its only CLI mode is --emit-scope-json",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)

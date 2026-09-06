@@ -124,3 +124,20 @@ def flat_repo(tmp_path: Path) -> Repo:
     made.write("myapp/__init__.py", "")
     made.commit("layout")
     return made
+
+
+@pytest.fixture
+def unborn_repo(tmp_path: Path) -> Repo:
+    """A checkout with no commits yet — an unborn HEAD.
+
+    Deliberately not built on `make_repo`, which commits. Every path in here is
+    untracked, which is the state a brand-new workspace is in for exactly as
+    long as it takes to write the first file and run the first gate.
+    """
+    root = tmp_path / "unborn"
+    root.mkdir(parents=True, exist_ok=True)
+    run_git(["init", "-q", "-b", "main"], root)
+    made = Repo(root)
+    made.write("pyproject.toml", "[project]\nname='x'\n")
+    made.write("myapp/__init__.py", "")
+    return made

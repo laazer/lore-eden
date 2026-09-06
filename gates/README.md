@@ -178,6 +178,59 @@ install would do before doing it. Re-running the installer on a repo that alread
 has the block refreshes it in place; a block written by loregarden's predecessor
 of this script is **replaced, not stacked beside**.
 
+## The fork with loregarden's copies, reconciled
+
+loregarden does not consume this library. It carries its own copies of these
+scripts under `.lefthook/scripts/`, and both sides were improved without the
+other knowing — which is the failure mode the library exists to end. Before any
+repo can be switched over, neither side may be ahead, or installing the managed
+block would *regress* the repo it was installed into.
+
+Ported here from loregarden's copies:
+
+| what | where |
+|---|---|
+| an unborn HEAD is gradable, not unexaminable | `unborn_worktree`, and the four ref-based queries that now use it |
+| a diff that emitted a header but described nothing | `suppressed_diff_paths`, now parsed-count vs numstat-count |
+| the scope resolved once, for a caller in another language | `--emit-scope-json`, and the 483 lines it deleted from the `.cjs` |
+
+Two claims that prompted this turned out to be stale and were **not** ported,
+because the fix was already here: the symlink-cycle `RuntimeError` (ELOOP) catch
+and the resolved-prefix repository root, both in `read_source_text`. They were
+compared line by line rather than taken on trust.
+
+The trees still differ, and these are the reasons:
+
+* **Typing spellings.** This tree is PEP 604/585 throughout (`X | None`,
+  `list[str]`); loregarden's copies are `Optional[X]`, `List[str]`. Same
+  behaviour. This side is the one under `policy/ruff-base.toml`.
+* **`require_tool_ran`, and the `_cli` wrappers on the two diff filters.** Only
+  here. A `python -m ruff` with ruff uninstalled exits non-zero with nothing on
+  stdout, and `json.loads(stdout or "[]")` turns that into "clean" — a machine
+  missing the tool reported a pass on every commit.
+* **The interpreter guard.** `interpreter.require_python()` here;
+  `gate_python_guard.require_supported_python()`, requiring 3.11 and exiting 69,
+  there. Two implementations of one idea; theirs is tied to their runner.
+* **Generalised gates.** `py_git_subprocess_check`, `pylint_diff_filter` and
+  `select_pytest_targets` take their repo's helper, prefix and package as
+  configuration here and hardcode loregarden's there. `py_organization_check`
+  carries loregarden's `Dot`/`mid_dot` rules as house rules rather than as
+  built-ins.
+* **Parser resolution in the `.cjs`.** Here it tries this package's own
+  `node_modules`, then the graded repo's, then throws with what it tried;
+  loregarden's resolves `../../client` by relative path, which is what made the
+  gate un-extractable in the first place.
+* **How the `.cjs` invokes the resolver.** A bare `python3` here, matching the
+  installed lefthook block and every Python gate; `bash server_python.sh` there.
+* **`relOf` in the `.cjs`.** Here it mirrors `located_path` — both sides
+  real-pathed, the file's parent only. loregarden's compares against the
+  unresolved root, so a checkout behind a symlinked prefix (macOS `/tmp` ->
+  `/private/tmp`, an agent worktree under a linked home) matches no key and the
+  gate prints a credible file count with a pass. **That one is a live bug on
+  their side**, introduced with their rewrite and fixed here.
+* **Dead constants in loregarden's `.cjs`.** `C_ESCAPES`,
+  `GIT_LOCATION_ENV_VARS`, `GIT_CONFIG_ENV_PREFIXES`, `TRUNK_REF_CANDIDATES`,
+  `tsFilesInScope` and an orphaned doc block survived their rewrite unreferenced.
 ## CSS
 
 `css_organization_check` grades `.css`, which every other gate here ignored. The
