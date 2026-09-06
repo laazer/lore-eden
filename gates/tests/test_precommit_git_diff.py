@@ -22,14 +22,22 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lore_eden_gates"))
 
 from precommit_git_diff import (  # noqa: E402
+    WORKTREE,
+    DiffNumstat,
     GitScopeError,
     UnexaminableError,
     UnexaminableFileError,
     decode_git_path,
     decoded_git_paths,
+    git_added_paths,
+    git_diff_cached,
+    git_diff_numstat,
+    git_gitlink_paths,
     read_source_text,
     resolve_scope,
     scrubbed_git_env,
+    suppressed_diff_paths,
+    unborn_worktree,
 )
 
 OFFENDER = '''"""A file with a getattr the organization gate refuses."""
@@ -215,3 +223,117 @@ class TestAFileThatCannotBeReadIsNotClean:
     def test_a_readable_file_comes_back(self, nested_repo) -> None:
         path = nested_repo.write("server/myapp/fine.py", "x = 1\n")
         assert read_source_text(path, repo=nested_repo.root) == "x = 1\n"
+
+
+class TestUnbornRepository:
+    """A repository with no commits is gradable, not unexaminable.
+
+    `git_changed_paths` has always answered without a ref; the four ref-based
+    queries beside it did not. The visible failure was a gate that printed
+    `examined 1 file(s)` over a brand-new workspace and then died on `git diff
+    HEAD` with "cannot determine what to examine" — it announced it had read the
+    file and then refused to grade it.
+    """
+
+    @pytest.fixture
+    def unborn(self, tmp_path) -> Path:
+        from tests.conftest import run_git
+
+        root = tmp_path / "unborn"
+        root.mkdir()
+        run_git(["init", "-q", "-b", "main"], root)
+        (root / "myapp").mkdir()
+        (root / "myapp" / "__init__.py").write_text("", encoding="utf-8")
+        (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+        return root
+
+    def test_only_the_worktree_scope_is_covered(self, unborn) -> None:
+        # `--cached` resolves fine against an unborn HEAD, and a named base is a
+        # ref the caller said has to exist. Substituting emptiness there would
+        # grade against a base nobody chose.
+        assert unborn_worktree(unborn, WORKTREE) is True
+        assert unborn_worktree(unborn, "staged") is False
+        assert unborn_worktree(unborn, "branch") is False
+
+    def test_the_ref_based_queries_answer_without_a_ref(self, unborn) -> None:
+        # Each of the four died with GitScopeError before the guard.
+        assert git_diff_cached(unborn, WORKTREE) == ""
+        assert git_added_paths(unborn, WORKTREE) == []
+        assert git_gitlink_paths(unborn, WORKTREE, "main") == []
+        assert git_diff_numstat(unborn, WORKTREE) == DiffNumstat({}, frozenset())
+
+    def test_a_committed_repository_still_reaches_git(self, nested_repo) -> None:
+        # The control for the four above: the guard must not be swallowing a
+        # real failure, so the same calls on a repo with a HEAD still answer
+        # from git rather than from the empty branch.
+        nested_repo.write("server/myapp/new.py", "VALUE = 1\n")
+        nested_repo.stage("server/myapp/new.py")
+        assert "server/myapp/new.py" in git_added_paths(nested_repo.root, WORKTREE)
+        assert "server/myapp/new.py" in git_diff_cached(nested_repo.root, WORKTREE)
+        assert git_diff_numstat(nested_repo.root, WORKTREE).counts
+
+    def test_the_gate_grades_the_new_file_rather_than_refusing(self, unborn) -> None:
+        from tests.conftest import Repo
+
+        (unborn / "myapp" / "reach.py").write_text(OFFENDER, encoding="utf-8")
+        result = Repo(unborn).gate(
+            "py_organization_check.py", "--repo", str(unborn), "--scope", "worktree"
+        )
+        combined = result.stdout + result.stderr
+        assert "cannot determine what to examine" not in combined, combined
+        assert "examined 0 file(s)" not in combined, combined
+        # Untracked, so graded whole: the getattr is found.
+        assert result.returncode == 1, combined
+        assert "getattr" in combined, combined
+
+
+class TestSuppressedDiffPaths:
+    """git counted N added lines; the parser found M. M < N is a diff that lied.
+
+    The previous rule asked whether the diff emitted a `+++ ` header for the
+    path. A `diff=<driver>` that prints the three header lines and exits walks
+    straight through that — real counts in `--numstat`, a header in the diff,
+    and no hunk for any gate to scope against, so the touched-line set came back
+    empty and every violation in the file passed.
+    """
+
+    HEADER_ONLY = (
+        "diff --git a/src/x.ts b/src/x.ts\n"
+        "--- a/src/x.ts\n"
+        "+++ b/src/x.ts\n"
+    )
+    REAL = (
+        "diff --git a/src/x.ts b/src/x.ts\n"
+        "--- a/src/x.ts\n"
+        "+++ b/src/x.ts\n"
+        "@@ -0,0 +1,2 @@\n"
+        "+one\n"
+        "+two\n"
+    )
+
+    def test_a_header_with_no_hunk_is_suppressed(self) -> None:
+        numstat = DiffNumstat({"src/x.ts": (2, 0)}, frozenset())
+        assert suppressed_diff_paths(self.HEADER_ONLY, numstat, ["src/x.ts"]) == frozenset(
+            {"src/x.ts"}
+        )
+
+    def test_a_partially_described_diff_is_suppressed(self) -> None:
+        # The case a "found nothing" test would pass: one hunk line where git
+        # counted two. Half a description is not a description.
+        partial = self.REAL.replace("+two\n", "")
+        numstat = DiffNumstat({"src/x.ts": (2, 0)}, frozenset())
+        assert suppressed_diff_paths(partial, numstat, ["src/x.ts"]) == frozenset({"src/x.ts"})
+
+    def test_a_diff_that_describes_its_own_change_is_not(self) -> None:
+        numstat = DiffNumstat({"src/x.ts": (2, 0)}, frozenset())
+        assert suppressed_diff_paths(self.REAL, numstat, ["src/x.ts"]) == frozenset()
+
+    def test_a_mode_only_change_is_not(self) -> None:
+        # `0 < 0` is false: a chmod reports 0\t0 and legitimately has no hunk.
+        numstat = DiffNumstat({"src/x.ts": (0, 0)}, frozenset())
+        assert suppressed_diff_paths("", numstat, ["src/x.ts"]) == frozenset()
+
+    def test_a_deletion_only_change_is_not(self) -> None:
+        # Deletions are not added lines, so they cannot make M fall short of N.
+        numstat = DiffNumstat({"src/x.ts": (0, 9)}, frozenset())
+        assert suppressed_diff_paths("", numstat, ["src/x.ts"]) == frozenset()
