@@ -20,19 +20,19 @@
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border);
-  border-radius: var(--rMd);
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--text);
   cursor: pointer;
 }
 
 .overflow-menu-trigger:hover {
-  background: var(--surface2);
+  background: var(--surface-2);
 }
 
 .overflow-menu-trigger:focus-visible,
 .overflow-menu-item:focus-visible {
-  outline: 2px solid var(--accentBright);
+  outline: 2px solid var(--accent-bright);
   outline-offset: -2px;
 }
 
@@ -40,11 +40,11 @@
   position: absolute;
   z-index: 1;
   min-inline-size: 12rem;
-  padding: var(--sp1) 0;
+  padding: var(--sp-1) 0;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--rMd);
-  box-shadow: var(--shFloat);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-float);
 }
 
 /* `left`/`right`, spelled as the component spells them. Checked against the
@@ -63,28 +63,28 @@
 }
 
 .overflow-menu-section + .overflow-menu-section {
-  margin-block-start: var(--sp1);
+  margin-block-start: var(--sp-1);
   border-block-start: 1px solid var(--border);
-  padding-block-start: var(--sp1);
+  padding-block-start: var(--sp-1);
 }
 
 .overflow-menu-item {
   display: flex;
   align-items: center;
-  gap: var(--sp2);
+  gap: var(--sp-2);
   inline-size: 100%;
-  padding: var(--sp2) var(--sp3);
+  padding: var(--sp-2) var(--sp-3);
   border: none;
   background: none;
   color: var(--text);
-  font-family: var(--fontUi);
-  font-size: var(--fsBody);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
   text-align: start;
   cursor: pointer;
 }
 
 .overflow-menu-item:hover:not(:disabled) {
-  background: var(--surface2);
+  background: var(--surface-2);
 }
 
 .overflow-menu-item:disabled {
