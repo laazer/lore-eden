@@ -302,7 +302,10 @@ jobs:
           control="$(mktemp -d)/repo"
           mkdir -p "$control"
           git -C "$control" init -q -b main
-          printf 'echo hi\n' > "$control/deploy.sh"
+          # A suffix no gate grades. It was `deploy.sh` until `.sh` became a
+          # graded suffix, at which point this control stopped controlling —
+          # and said so, which is the only reason it is right now.
+          printf 'notes\n' > "$control/CHANGELOG.rst"
           git -C "$control" add -A
           git -C "$control" commit -qm baseline
           if python3 gates/lore_eden_gates/gate_coverage_check.py --repo "$control"; then
