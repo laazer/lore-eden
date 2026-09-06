@@ -13,6 +13,7 @@ an unresolvable base ref.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -235,32 +236,20 @@ class TestUnbornRepository:
     file and then refused to grade it.
     """
 
-    @pytest.fixture
-    def unborn(self, tmp_path) -> Path:
-        from tests.conftest import run_git
-
-        root = tmp_path / "unborn"
-        root.mkdir()
-        run_git(["init", "-q", "-b", "main"], root)
-        (root / "myapp").mkdir()
-        (root / "myapp" / "__init__.py").write_text("", encoding="utf-8")
-        (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
-        return root
-
-    def test_only_the_worktree_scope_is_covered(self, unborn) -> None:
+    def test_only_the_worktree_scope_is_covered(self, unborn_repo) -> None:
         # `--cached` resolves fine against an unborn HEAD, and a named base is a
         # ref the caller said has to exist. Substituting emptiness there would
         # grade against a base nobody chose.
-        assert unborn_worktree(unborn, WORKTREE) is True
-        assert unborn_worktree(unborn, "staged") is False
-        assert unborn_worktree(unborn, "branch") is False
+        assert unborn_worktree(unborn_repo.root, WORKTREE) is True
+        assert unborn_worktree(unborn_repo.root, "staged") is False
+        assert unborn_worktree(unborn_repo.root, "branch") is False
 
-    def test_the_ref_based_queries_answer_without_a_ref(self, unborn) -> None:
+    def test_the_ref_based_queries_answer_without_a_ref(self, unborn_repo) -> None:
         # Each of the four died with GitScopeError before the guard.
-        assert git_diff_cached(unborn, WORKTREE) == ""
-        assert git_added_paths(unborn, WORKTREE) == []
-        assert git_gitlink_paths(unborn, WORKTREE, "main") == []
-        assert git_diff_numstat(unborn, WORKTREE) == DiffNumstat({}, frozenset())
+        assert git_diff_cached(unborn_repo.root, WORKTREE) == ""
+        assert git_added_paths(unborn_repo.root, WORKTREE) == []
+        assert git_gitlink_paths(unborn_repo.root, WORKTREE, "main") == []
+        assert git_diff_numstat(unborn_repo.root, WORKTREE) == DiffNumstat({}, frozenset())
 
     def test_a_committed_repository_still_reaches_git(self, nested_repo) -> None:
         # The control for the four above: the guard must not be swallowing a
@@ -272,12 +261,10 @@ class TestUnbornRepository:
         assert "server/myapp/new.py" in git_diff_cached(nested_repo.root, WORKTREE)
         assert git_diff_numstat(nested_repo.root, WORKTREE).counts
 
-    def test_the_gate_grades_the_new_file_rather_than_refusing(self, unborn) -> None:
-        from tests.conftest import Repo
-
-        (unborn / "myapp" / "reach.py").write_text(OFFENDER, encoding="utf-8")
-        result = Repo(unborn).gate(
-            "py_organization_check.py", "--repo", str(unborn), "--scope", "worktree"
+    def test_the_gate_grades_the_new_file_rather_than_refusing(self, unborn_repo) -> None:
+        unborn_repo.write("myapp/reach.py", OFFENDER)
+        result = unborn_repo.gate(
+            "py_organization_check.py", "--repo", str(unborn_repo.root), "--scope", "worktree"
         )
         combined = result.stdout + result.stderr
         assert "cannot determine what to examine" not in combined, combined
@@ -337,3 +324,163 @@ class TestSuppressedDiffPaths:
         # Deletions are not added lines, so they cannot make M fall short of N.
         numstat = DiffNumstat({"src/x.ts": (0, 9)}, frozenset())
         assert suppressed_diff_paths("", numstat, ["src/x.ts"]) == frozenset()
+
+
+class TestEmitScopeJson:
+    """The scope, resolved once, for a gate written in another language.
+
+    `ts_organization_check.cjs` carried a hand-port of this module's scope
+    policy. This entry point is what deletes it: the `.cjs` passes in the only
+    two things that are genuinely TypeScript's — which suffixes it grades and
+    which source root confines discovery — and gets back everything else.
+    """
+
+    def _emit(self, repo, *args: str):
+        result = repo.gate("precommit_git_diff.py", "--emit-scope-json", *args)
+        return result
+
+    def test_it_answers_with_the_files_that_survived_the_callers_filter(
+        self, nested_repo
+    ) -> None:
+        nested_repo.write("server/myapp/kept.ts", "export const a = 1;\n")
+        nested_repo.write("server/myapp/ignored.py", "A = 1\n")
+        nested_repo.stage("server/myapp/kept.ts", "server/myapp/ignored.py")
+        result = self._emit(
+            nested_repo,
+            "--repo",
+            str(nested_repo.root),
+            "--label",
+            "ts-gate",
+            "--suffix",
+            ".ts",
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        payload = json.loads(result.stdout)
+        assert [Path(f).name for f in payload["files"]] == ["kept.ts"]
+        # The count the caller prints is computed after that filter, by this
+        # code, so it cannot disagree with the list beside it.
+        assert "examined 1 file(s)" in "\n".join(payload["notices"])
+        assert payload["scope"]["diff_scope"] == "staged"
+
+    def test_the_human_lines_come_back_rather_than_going_to_the_terminal(
+        self, nested_repo
+    ) -> None:
+        # stdout is the JSON channel. A notice printed straight through would
+        # make the payload unparseable, which the caller must read as "could not
+        # examine" — so a gate that only ever prints on success would break the
+        # gate that never does.
+        nested_repo.write("server/myapp/a.ts", "export const a = 1;\n")
+        nested_repo.stage("server/myapp/a.ts")
+        result = self._emit(nested_repo, "--repo", str(nested_repo.root), "--suffix", ".ts")
+        json.loads(result.stdout)  # parses: nothing leaked into it
+
+    def test_an_unresolvable_scope_exits_three_with_the_reason(self, nested_repo) -> None:
+        # Not 1: the caller has to tell "could not determine what to examine"
+        # apart from "graded files and found violations".
+        result = self._emit(
+            nested_repo,
+            "--repo",
+            str(nested_repo.root),
+            "--scope",
+            "branch",
+            "--base",
+            "no-such-ref-anywhere",
+            "--suffix",
+            ".ts",
+        )
+        assert result.returncode == 3, result.stdout + result.stderr
+        assert json.loads(result.stdout)["error"]
+
+    def test_discovered_candidates_are_confined_to_the_select_root(
+        self, nested_repo
+    ) -> None:
+        nested_repo.write("server/myapp/inside.ts", "export const a = 1;\n")
+        nested_repo.write("elsewhere/outside.ts", "export const b = 2;\n")
+        nested_repo.stage("server/myapp/inside.ts", "elsewhere/outside.ts")
+        result = self._emit(
+            nested_repo,
+            "--repo",
+            str(nested_repo.root),
+            "--suffix",
+            ".ts",
+            "--select-root",
+            str(nested_repo.root / "server"),
+        )
+        payload = json.loads(result.stdout)
+        assert [Path(f).name for f in payload["files"]] == ["inside.ts"]
+
+    def test_an_explicitly_named_file_is_not_second_guessed(self, nested_repo) -> None:
+        # The caller scoped the run; narrowing it again would drop files that
+        # caller meant to have graded. Same rule the Python gates follow.
+        outside = nested_repo.write("elsewhere/outside.ts", "export const b = 2;\n")
+        nested_repo.stage("elsewhere/outside.ts")
+        result = self._emit(
+            nested_repo,
+            "--repo",
+            str(nested_repo.root),
+            "--suffix",
+            ".ts",
+            "--select-root",
+            str(nested_repo.root / "server"),
+            str(outside),
+        )
+        payload = json.loads(result.stdout)
+        assert [Path(f).name for f in payload["files"]] == ["outside.ts"]
+
+    def test_it_reports_the_touched_lines_and_counts(self, nested_repo) -> None:
+        nested_repo.write("server/myapp/a.ts", "export const a = 1;\n")
+        nested_repo.commit("base")
+        nested_repo.write("server/myapp/a.ts", "export const a = 1;\nexport const b = 2;\n")
+        nested_repo.stage("server/myapp/a.ts")
+        payload = json.loads(
+            self._emit(nested_repo, "--repo", str(nested_repo.root), "--suffix", ".ts").stdout
+        )
+        assert payload["additions"]["server/myapp/a.ts"] == [2]
+        assert payload["counts"]["server/myapp/a.ts"] == [1, 0]
+
+    def test_an_untracked_file_is_named_as_such(self, nested_repo) -> None:
+        # The caller grades these whole; an empty touched-line set is what let
+        # a brand-new file pass.
+        nested_repo.write("server/myapp/new.ts", "export const a = 1;\n")
+        payload = json.loads(
+            self._emit(
+                nested_repo,
+                "--repo",
+                str(nested_repo.root),
+                "--scope",
+                "worktree",
+                "--suffix",
+                ".ts",
+            ).stdout
+        )
+        assert "server/myapp/new.ts" in payload["untracked"]
+
+    def test_the_library_refuses_any_other_cli_use(self, nested_repo) -> None:
+        result = nested_repo.gate("precommit_git_diff.py", "--repo", str(nested_repo.root))
+        assert result.returncode == 2
+        assert "library" in result.stderr
+
+    def test_a_symlinked_source_stays_in_scope_for_the_read_guard_to_refuse(
+        self, nested_repo, tmp_path
+    ) -> None:
+        # `located_path`, not `resolve()`, in the select-root filter. Resolving
+        # the whole path follows the link out of the tree, drops the file, and
+        # reports `examined 0` over the one path the read guard exists to
+        # refuse — a vacuous pass dressed as a clean run.
+        outside = tmp_path / "outside.ts"
+        outside.write_text("export const a = 1;\n", encoding="utf-8")
+        link = nested_repo.root / "server" / "myapp" / "linked.ts"
+        link.symlink_to(outside)
+        nested_repo.stage("server/myapp/linked.ts")
+        payload = json.loads(
+            self._emit(
+                nested_repo,
+                "--repo",
+                str(nested_repo.root),
+                "--suffix",
+                ".ts",
+                "--select-root",
+                str(nested_repo.root / "server"),
+            ).stdout
+        )
+        assert [Path(f).name for f in payload["files"]] == ["linked.ts"]
