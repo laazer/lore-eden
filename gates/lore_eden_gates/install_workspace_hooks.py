@@ -54,6 +54,7 @@ class ManagedGate(NamedTuple):
 #: The alternation covers both depths. Verified against lefthook v2.1.10.
 PY_GLOB = "{*.py,**/*.py}"
 TS_GLOB = "{*.ts,*.tsx,**/*.ts,**/*.tsx}"
+CSS_GLOB = "{*.css,**/*.css}"
 
 #: Every gate whose rules hold in any repo. The two the predecessor never
 #: installed — git-subprocess routing and defensive normalization — are here:
@@ -94,6 +95,17 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
         "node",
         "ts_organization_check.cjs",
         TS_GLOB,
+    ),
+    # Stylesheets, which every gate above this line ignored. A commit touching
+    # only `.css` matched no glob, so the whole stage printed "no files for
+    # inspection" and passed — which is how 81 declarations naming a custom
+    # property nothing defines survived the life of the files.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-css-organization",
+        "CSS organization guardrails",
+        "python3",
+        "css_organization_check.py",
+        CSS_GLOB,
     ),
     # The two diff filters. They were written, tested by nothing and installed
     # nowhere — 423 lines the README described as "supporting, not installed as

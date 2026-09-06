@@ -38,7 +38,7 @@ meant to prevent.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CONFIG_FILENAME = ".lore-eden-gates.json"
@@ -70,6 +70,20 @@ class HouseRules:
     #: set.
     git_subprocess_helper_path: str = ""
 
+    #: Repo-relative path of the file defining this repo's CSS custom
+    #: properties — a ``.css`` carrying ``--name: value`` declarations, or a
+    #: TS/JS module carrying ``css``/``value`` pairs. Empty disables the
+    #: undefined-token and duplicate-colour rules, because a gate that cannot
+    #: name the tokens cannot tell a typo from a property the consumer supplies.
+    css_token_source: str = ""
+
+    #: Glob -> why it needs no gate, for every tracked path no gate grades.
+    #: Read by ``gate_coverage_check``: a file type nobody decided about is the
+    #: thing that rule exists to surface, so the exemption carries a reason
+    #: rather than being a bare list. Empty means every tracked file must be
+    #: graded by something.
+    ungated_globs: dict[str, str] = field(default_factory=dict)
+
     @property
     def mid_dot_enabled(self) -> bool:
         return bool(self.mid_dot_helper)
@@ -78,12 +92,49 @@ class HouseRules:
     def git_subprocess_enabled(self) -> bool:
         return bool(self.git_subprocess_helper)
 
+    @property
+    def css_tokens_enabled(self) -> bool:
+        return bool(self.css_token_source)
+
 
 _FIELDS = {
     "mid_dot_helper",
     "git_subprocess_helper",
     "git_subprocess_helper_path",
+    "css_token_source",
+    "ungated_globs",
 }
+
+#: The one key whose value is an object rather than a string. Kept explicit so
+#: the type check below stays a whitelist: a new string key needs no change
+#: here, and a new structured one has to be added on purpose.
+_OBJECT_FIELDS = {"ungated_globs"}
+
+
+def _validate_value(config_path: Path, key: str, value: object) -> None:
+    """One key's value, by the shape its field declares.
+
+    Split out of `load_house_rules` because the object-valued key pushed that
+    function past the complexity cap — which the diff filter caught on the
+    commit adding it, doing exactly what it is for.
+    """
+    if key not in _OBJECT_FIELDS:
+        if not isinstance(value, str):  # py-org: allow-isinstance (no Pydantic here by design)
+            raise HouseRulesError(
+                f"{config_path}: `{key}` must be a string, got {type(value).__name__}"
+            )
+        return
+    if not isinstance(value, dict):  # py-org: allow-isinstance — see above
+        raise HouseRulesError(
+            f"{config_path}: `{key}` must be an object mapping glob to reason, "
+            f"got {type(value).__name__}"
+        )
+    for glob, reason in value.items():
+        if not isinstance(reason, str) or not reason.strip():  # py-org: allow-isinstance
+            raise HouseRulesError(
+                f"{config_path}: `{key}[{glob}]` must be a non-empty reason; an "
+                "exemption without one is the decision this rule exists to record"
+            )
 
 
 def load_house_rules(repo: Path | None) -> HouseRules:
@@ -118,10 +169,7 @@ def load_house_rules(repo: Path | None) -> HouseRules:
             f"{config_path}: unknown key(s) {', '.join(unknown)}; known keys are {known}"
         )
     for key, value in raw.items():
-        if not isinstance(value, str):  # py-org: allow-isinstance — see above
-            raise HouseRulesError(
-                f"{config_path}: `{key}` must be a string, got {type(value).__name__}"
-            )
+        _validate_value(config_path, key, value)
 
     rules = HouseRules(**raw)
     if rules.git_subprocess_helper and not rules.git_subprocess_helper_path:

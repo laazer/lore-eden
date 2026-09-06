@@ -37,7 +37,10 @@ fi
 
 status=0
 for target in "${targets[@]}"; do
-  if [ ! -d "$target/.git" ]; then
+  # `-e`, not `-d`: in a git worktree `.git` is a *file* holding a `gitdir:`
+  # pointer, so `-d` refused to install into any worktree — and this repo, and
+  # every agent checkout of it, is worked in worktrees.
+  if [ ! -e "$target/.git" ]; then
     echo "skip: $target is not a git repository" >&2
     status=1
     continue
