@@ -286,3 +286,27 @@ class TestScopeComesFromTheResolver:
         assert "cannot determine what to examine" in output(result)
         # The reason the interpreter gave, carried through rather than swallowed.
         assert "Python 3.10" in output(result)
+
+    def test_a_graded_file_is_not_reported_as_duplicating_itself(self, repo, tmp_path):
+        # The DRY catalog skips files the run is grading, via
+        # `changedSet.has(full)`. `changedSet` holds the resolver's paths, which
+        # are under the *resolved* root; `full` was built from the string the
+        # caller passed. Behind a symlinked prefix the two never compared equal,
+        # so every graded file went into the catalog and matched itself:
+        #
+        #   ChatComposer.tsx:19: `ChatComposer` duplicates existing code
+        #     (../../../../var/folders/.../ChatComposer.tsx:ChatComposer@19)
+        #
+        # pytest's tmp_path is already resolved, so reproducing it needs a link.
+        # Long enough to reach MIN_DUPLICATE_BODY_LINES; the catalog ignores
+        # bodies shorter than that, so a small fixture cannot reproduce this.
+        body = "\n".join(f"  const v{i} = {i};" for i in range(12))
+        ts_repo(repo, "src/Big.tsx", f"export function Big() {{\n{body}\n  return null;\n}}\n")
+        link = tmp_path / "linked-checkout"
+        link.symlink_to(repo.root)
+        result = repo.gate(
+            "ts_organization_check.cjs", "--repo", str(link), "--scope", "worktree"
+        )
+        assert "duplicates existing code" not in output(result), output(result)
+        assert result.returncode == 0, output(result)
+        assert "examined 1 file(s)" in output(result)

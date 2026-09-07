@@ -69,6 +69,11 @@ pre-commit:
       priority: 1
       glob: "{*.sh,**/*.sh}"
       run: python3 gates/lore_eden_gates/sh_shellcheck_check.py {staged_files}
+    lore-eden-data-formats:
+      name: Configuration and lockfiles parse (lore-eden)
+      priority: 1
+      glob: "{*.json,*.yml,*.yaml,*.toml,**/*.json,**/*.yml,**/*.yaml,**/*.toml}"
+      run: python3 gates/lore_eden_gates/data_format_check.py {staged_files}
     lore-eden-py-complexity:
       name: Python complexity growth (Ruff C901, diff-scoped) (lore-eden)
       priority: 1
