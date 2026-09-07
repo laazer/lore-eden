@@ -44,7 +44,7 @@ jobs:
       # reporting no growth — correct, but it makes the job useless, so CI
       # installs them rather than exercising the refusal path forever.
       - name: Install the linters the diff filters drive
-        run: python -m pip install --upgrade pip ruff pylint shellcheck-py
+        run: python -m pip install --upgrade pip ruff pylint shellcheck-py pyyaml tomli
 
       - name: Install test dependencies
         run: python -m pip install --upgrade pip pytest
@@ -142,7 +142,7 @@ jobs:
       # reporting no growth — correct, but it makes the job useless, so CI
       # installs them rather than exercising the refusal path forever.
       - name: Install the linters the diff filters drive
-        run: python -m pip install --upgrade pip ruff pylint shellcheck-py
+        run: python -m pip install --upgrade pip ruff pylint shellcheck-py pyyaml tomli
 
       # Positive control, and it runs FIRST. Every gate below can legitimately
       # examine zero files — a docs-only PR gives the TypeScript gate nothing —
@@ -222,13 +222,22 @@ jobs:
             py_git_subprocess_check.py \
             py_defensive_normalization_check.py \
             css_organization_check.py \
-            sh_shellcheck_check.py
+            sh_shellcheck_check.py \
+            data_format_check.py
           do
             echo "--- $gate"
             python3 "gates/lore_eden_gates/$gate" --repo "$PWD" --scope branch --base "$base"
           done
           echo "--- ts_organization_check.cjs"
           node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope branch --base "$base"
+          # Named explicitly: discovery is confined to the TypeScript project
+          # directory, and this file is not in it. The hook grades it because
+          # lefthook passes staged paths, so without this line CI would be the
+          # only place that never read the one `.cjs` the coverage check claims
+          # is graded.
+          echo "--- ts_organization_check.cjs (grading itself)"
+          node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" \
+            --scope branch --base "$base" gates/lore_eden_gates/ts_organization_check.cjs
           # Not diff-scoped and not per-file: it asks whether anything grades
           # each tracked path at all, which is a property of the repository.
           echo "--- gate_coverage_check.py"
@@ -287,6 +296,31 @@ jobs:
           if python3 gates/lore_eden_gates/sh_shellcheck_check.py \
                --repo "$control" --scope worktree; then
             echo "::error::the shell gate passed an unquoted variable; it is not working"
+            exit 1
+          fi
+          echo "control failed as required"
+
+      - name: Positive control — a file that does not parse must fail the gate
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)/repo"
+          mkdir -p "$control"
+          git -C "$control" init -q -b main
+          printf 'placeholder\n' > "$control/README"
+          git -C "$control" add -A
+          git -C "$control" commit -qm baseline
+          # JSON, deliberately: it is the one format checked on every
+          # interpreter these gates support, so this control cannot pass
+          # because a parser happened to be installed.
+          printf '{"a": 1,}\n' > "$control/broken.json"
+          if python3 gates/lore_eden_gates/data_format_check.py \
+               --repo "$control" --scope worktree; then
+            echo "::error::the data-format gate passed JSON that does not parse"
             exit 1
           fi
           echo "control failed as required"

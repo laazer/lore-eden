@@ -6,9 +6,6 @@
   "ungated_globs": {
     "*.md": "prose; there is no markdown linter this repo has agreed to, and a gate nobody agrees with is one people bypass",
     "LICENSE": "verbatim licence text, which must not be edited to satisfy anything",
-    ".gitignore": "a list of paths; the gate that would matter is the coverage check itself, which reads the index and so already sees what this excludes",
-    "*.json": "configuration and lockfiles; malformed JSON fails the tool that reads it, which is a faster and more specific signal than a gate",
-    "*.toml": "configuration; policy/ruff-base.toml is exercised by every ruff run and pyproject.toml by every install and the packaging test",
-    "*.yml": "CI workflows and lefthook config; GitHub validates the first on push and lefthook the second on every hook run"
+    ".gitignore": "a list of path patterns; there is no assertion to make about one that git itself does not already make"
   }
 }

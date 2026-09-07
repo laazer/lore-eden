@@ -528,11 +528,22 @@ function checkFile(filePath, content, lines, { added, netGrowing, repoRoot }) {
  * Where this repo keeps its TypeScript. loregarden uses client/src; other
  * workspaces put it at src/ or app/. Detected, not hardcoded, because these
  * checks run against every workspace the control plane drives.
+ *
+ * The *project* directory, not the source directory inside it: `ts`, not
+ * `ts/src`. Discovery is confined to whatever this returns, and confining it to
+ * `ts/src` left `ts/tests/` ungraded — sixteen files, including every test in
+ * the package. The hook never noticed, because lefthook passes staged paths
+ * explicitly and an explicit list is not narrowed; CI's `--scope branch` run
+ * has no explicit list, so it was the one that went blind.
+ *
+ * What the confinement is actually for is not grading a repo-root `vite.config`
+ * or a `scripts/` directory by rules written for application code, and the
+ * project directory still excludes those.
  */
 function tsSourceRoot(repoRoot) {
-  for (const candidate of ["client/src", "ts/src", "src", "app", "frontend/src"]) {
+  for (const candidate of ["client", "ts", "frontend", "app", "src"]) {
     const full = path.resolve(repoRoot, candidate);
-    if (fs.existsSync(full)) return full;
+    if (fs.existsSync(full) && fs.statSync(full).isDirectory()) return full;
   }
   return path.resolve(repoRoot);
 }
@@ -603,7 +614,20 @@ function parseArgv(argv) {
     else if (argv[i] === "--base" && argv[i + 1]) baseRef = argv[(i += 1)];
     else if (/\.(ts|tsx|cjs)$/.test(argv[i])) files.push(argv[i]);
   }
-  const repoRoot = repoArg ? path.resolve(repoArg) : process.cwd();
+  // Real-pathed, and that is load-bearing rather than tidy. The scope resolver
+  // answers with paths under the *resolved* root, while everything derived from
+  // this one — `tsSourceRoot`, the catalog walk — is derived from the string the
+  // caller passed. Behind a symlinked prefix (`/tmp` -> `/private/tmp`, an agent
+  // worktree under a linked home) the two never compare equal, so
+  // `buildCatalog`'s `changedSet.has(full)` guard missed every graded file, put
+  // it in the DRY catalog, and reported it as duplicating itself:
+  //
+  //   ChatComposer.tsx:19: function `ChatComposer` duplicates existing code
+  //     (../../../../var/folders/.../ChatComposer.tsx:ChatComposer@19)
+  //
+  // Same class as `relOf` below and as `read_source_text`'s resolved-prefix
+  // check: one path, two spellings, compared as strings.
+  const repoRoot = fs.realpathSync(repoArg ? path.resolve(repoArg) : process.cwd());
   const label = diffScope === "staged" && !repoArg ? "pre-commit" : "gate";
   return { files, repoRoot, diffScope, baseRef, label };
 }

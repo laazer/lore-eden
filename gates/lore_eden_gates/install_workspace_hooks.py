@@ -56,6 +56,7 @@ PY_GLOB = "{*.py,**/*.py}"
 TS_GLOB = "{*.ts,*.tsx,**/*.ts,**/*.tsx}"
 CSS_GLOB = "{*.css,**/*.css}"
 SH_GLOB = "{*.sh,**/*.sh}"
+DATA_GLOB = "{*.json,*.yml,*.yaml,*.toml,**/*.json,**/*.yml,**/*.yaml,**/*.toml}"
 
 #: Every gate whose rules hold in any repo. The two the predecessor never
 #: installed — git-subprocess routing and defensive normalization — are here:
@@ -117,6 +118,16 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
         "python3",
         "sh_shellcheck_check.py",
         SH_GLOB,
+    ),
+    # Configuration and lockfiles. "Some other tool would notice eventually" is
+    # not a check: a malformed workflow is not read until a push, and a broken
+    # gate config not until a gate runs somewhere else.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-data-formats",
+        "Configuration and lockfiles parse",
+        "python3",
+        "data_format_check.py",
+        DATA_GLOB,
     ),
     # The two diff filters. They were written, tested by nothing and installed
     # nowhere — 423 lines the README described as "supporting, not installed as

@@ -290,6 +290,24 @@ shell defect there is — is `info`, and shellcheck's gcc format collapses `info
 and `style` into one label. A first draft read gcc output, excluded notes, and
 passed a planted `rm $UNQUOTED`. Reading JSON is what makes the two separable.
 
+## Configuration and lockfiles
+
+`data_format_check` parses `.json`, `.yml`/`.yaml` and `.toml`. They were exempt
+with the reason "malformed JSON fails the tool that reads it" — true of a file
+something reads every run, false of a workflow not read until a push or a gate
+config not read until a gate runs in another repo. "Some other tool would notice
+eventually" is not a check.
+
+Whole-file rather than diff-scoped, and it is the one gate here that should be:
+a file either parses or it does not, and a malformed line nobody touched still
+breaks every reader.
+
+JSON is checked always — `json` is standard library on every interpreter these
+gates support. YAML and TOML are not: `tomllib` arrives in 3.11 and these gates
+floor at 3.10, and PyYAML is third-party. When a parser is missing the run says
+so by name and names the fix, rather than skipping in silence. Refusing outright
+would make the gate unusable on the bare `python3` this library exists to run on.
+
 ## Is anything looking at this file at all?
 
 `gate_coverage_check` asks the question one level up from the others. It reads
