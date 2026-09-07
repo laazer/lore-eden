@@ -34,9 +34,16 @@ def configure(repo, **overrides):
     repo.write(".lore-eden-gates.json", json.dumps(payload))
 
 
-def test_git_gate_is_silent_until_a_helper_is_named(nested_repo):
-    """Flagging every git call in a repo with no designated wrapper would be an
-    unactionable finding on each one."""
+def test_git_gate_reports_but_does_not_block_until_a_helper_is_named(nested_repo):
+    """Demanding these route through a wrapper the repo has not got would fail
+    every commit from the moment the gate is installed — an outage, not a
+    stricter gate. So it does not block.
+
+    It used to *skip*, returning before reading a file, which made this
+    indistinguishable from a repo with no git calls at all. Those are opposite
+    facts and both were reported as `skipped`, so the calls are named now even
+    though the fix cannot be.
+    """
     nested_repo.write("server/myapp/git_user.py", GIT_CALL)
 
     result = nested_repo.gate(
@@ -44,29 +51,37 @@ def test_git_gate_is_silent_until_a_helper_is_named(nested_repo):
     )
 
     assert result.returncode == 0
-    assert "skipped" in result.stdout
+    assert "unscrubbed git subprocess call" in result.stdout
+    assert "git_user.py" in result.stdout
 
 
-def test_the_skip_is_announced_in_the_pre_commit_form_too(nested_repo):
+def test_the_unconfigured_report_reaches_the_pre_commit_form_too(nested_repo):
     """The form the installer writes, which is the one that matters.
 
     The managed lefthook block passes bare filenames, which the argument parser
-    labels ``pre-commit`` rather than ``gate``. The skip notice was printed only
+    labels ``pre-commit`` rather than ``gate``. The notice was once printed only
     for ``gate``, so a repo that installed five gates silently ran four — and
     the one it lost was the one it had most deliberately asked for.
 
     Found by installing the block into throwaway copies of the three cut-over
     targets and running the installed command lines, rather than by reading.
+    That invariant is unchanged; only what the notice *says* has moved on, from
+    "skipped" to naming the calls it found.
     """
     nested_repo.write("server/myapp/git_user.py", GIT_CALL)
+    # Staged, because the pre-commit form scopes to the index like every other
+    # gate. Unstaged, the honest answer is that this change touched nothing —
+    # which the old assertion never noticed, because the skip notice printed
+    # before a single file was read.
+    nested_repo.stage("server/myapp/git_user.py")
 
     result = nested_repo.gate("py_git_subprocess_check.py", "server/myapp/git_user.py")
 
     assert result.returncode == 0
-    assert "skipped" in result.stdout, (
-        "the pre-commit form must say it did nothing, not exit 0 in silence"
+    assert "unscrubbed git subprocess call" in result.stdout, (
+        "the pre-commit form must report what it found, not exit 0 in silence"
     )
-    assert "git_subprocess_helper" in result.stdout, "and must say how to enable it"
+    assert "git_subprocess_helper" in result.stdout, "and must say how to enforce it"
 
 
 def test_git_gate_flags_an_unscrubbed_call_once_configured(nested_repo):

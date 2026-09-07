@@ -158,10 +158,20 @@ them a `.lore-eden-gates.json` at the repo root:
 }
 ```
 
-**Without it the git-subprocess gate does nothing**, and says so on every run —
-in both the pre-commit form and the `--repo/--scope` form. It once announced the
-skip only in the second, which meant a repo that installed five gates silently
-ran four, and the one it lost was the one it had most deliberately asked for.
+Without it the git-subprocess gate still **runs**; what it loses is the ability
+to enforce. It reports the unscrubbed calls it finds and exits 0, because
+demanding they route through a wrapper the repo has not got would fail every
+commit from the moment the gate is installed — an outage, not a stricter gate.
+Naming the helper is what turns the report into a blocking rule.
+
+It used to return before reading a file, and print `skipped`. That collapsed two
+opposite facts into one line: a repo that never shells out to git, and a repo
+that does it in twelve places with no chokepoint. The first is the rule holding,
+verifiably, and a gate that can say so should.
+
+The notice reaches both invocation forms. It once appeared only in the
+`--repo/--scope` form, which meant a repo that installed five gates silently ran
+four, and the one it lost was the one it had most deliberately asked for.
 
 An unknown key or a malformed file raises rather than defaulting. A repo that
 meant to configure a gate and typed the key wrongly should hear about it, not
