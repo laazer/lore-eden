@@ -235,25 +235,47 @@ def main(argv: list[str]) -> int:
     return guarded(invocation.label, lambda: _check(invocation))
 
 
+def _report_without_enforcing(label: str, failures: list[str]) -> int:
+    """Name the calls, do not block the commit.
+
+    Demanding these route through a wrapper the repo has not got would fail
+    every commit from the moment the gate is installed, which is an outage
+    rather than a stricter gate — and the honest ask is "make a chokepoint",
+    which is a change no hook should make on someone's behalf.
+
+    Its own function because the complexity filter said so on the commit that
+    added it, which is the filter doing its job.
+    """
+    print(
+        f"{label}: {len(failures)} unscrubbed git subprocess call(s), and no "
+        "chokepoint to route them through:"
+    )
+    for failure in failures:
+        print(failure)
+    print()
+    print(
+        "   GIT_DIR overrides cwd, so each of these can operate on the wrong "
+        "repository. Add one wrapper that scrubs the repo-binding variables, "
+        "then name it as `git_subprocess_helper` in .lore-eden-gates.json to "
+        "have this gate enforce it."
+    )
+    return 0
+
+
 def _check(invocation: Invocation) -> int:
     house_rules = load_house_rules(invocation.repo)
-    if not house_rules.git_subprocess_enabled:
-        # No designated wrapper means no actionable finding. Say so rather than
-        # printing a pass, so a repo that meant to enable this can tell the
-        # difference between "clean" and "never ran".
-        #
-        # Printed for *every* invocation form. It was once suppressed unless the
-        # label was "gate", which silenced it in the one form that matters most:
-        # the pre-commit entry the installer writes passes bare filenames and
-        # gets the label "pre-commit". So a repo that installed five gates
-        # silently ran four, and the check it most wanted — this one — reported
-        # nothing while doing nothing.
-        print(
-            f"{invocation.label}: git-subprocess check skipped — no "
-            "git_subprocess_helper in .lore-eden-gates.json, so there is no "
-            "wrapper to require calls to route through."
-        )
-        return 0
+    # Unconfigured no longer means unexamined. It used to return here, before
+    # reading a single file, which collapsed two opposite facts into one line:
+    # a repo that never shells out to git at all, and a repo that does it in
+    # twelve places with no chokepoint, both reported "skipped".
+    #
+    # The first is the rule holding, verifiably, and a gate that can say so
+    # should. The second is worth knowing even when this cannot name the fix —
+    # "you shell out to git here, and have nowhere to route it" is the finding,
+    # and the helper name is only what turns it into an enforceable one.
+    #
+    # So the scan always runs. What configuration changes is the verdict, not
+    # whether anything was read.
 
     #: Counted so the run can say *why* it graded nothing. "examined 0 file(s)"
     #: over a change that did touch Python is indistinguishable from a gate that
@@ -301,6 +323,9 @@ def _check(invocation: Invocation) -> int:
         if invocation.label == "gate":
             print("gate: git-subprocess check passed.")
         return 0
+
+    if not house_rules.git_subprocess_enabled:
+        return _report_without_enforcing(invocation.label, failures)
 
     print(f"{invocation.label}: ❌ Unscrubbed git subprocess call (inherits GIT_DIR):")
     print("   GIT_DIR overrides cwd, so this can operate on the wrong repository.")
