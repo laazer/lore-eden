@@ -404,6 +404,8 @@ function resolveGateScope({ label, repoRoot, diffScope, baseRef, files }) {
       ".ts",
       "--suffix",
       ".tsx",
+      "--suffix",
+      ".cjs",
       "--select-root",
       tsSourceRoot(repoRoot),
       ...files.map((f) => path.resolve(f)),
@@ -528,7 +530,7 @@ function checkFile(filePath, content, lines, { added, netGrowing, repoRoot }) {
  * checks run against every workspace the control plane drives.
  */
 function tsSourceRoot(repoRoot) {
-  for (const candidate of ["client/src", "src", "app", "frontend/src"]) {
+  for (const candidate of ["client/src", "ts/src", "src", "app", "frontend/src"]) {
     const full = path.resolve(repoRoot, candidate);
     if (fs.existsSync(full)) return full;
   }
@@ -599,7 +601,7 @@ function parseArgv(argv) {
     if (argv[i] === "--repo" && argv[i + 1]) repoArg = argv[(i += 1)];
     else if (argv[i] === "--scope" && argv[i + 1]) diffScope = argv[(i += 1)];
     else if (argv[i] === "--base" && argv[i + 1]) baseRef = argv[(i += 1)];
-    else if (/\.(ts|tsx)$/.test(argv[i])) files.push(argv[i]);
+    else if (/\.(ts|tsx|cjs)$/.test(argv[i])) files.push(argv[i]);
   }
   const repoRoot = repoArg ? path.resolve(repoArg) : process.cwd();
   const label = diffScope === "staged" && !repoArg ? "pre-commit" : "gate";

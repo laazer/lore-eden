@@ -65,6 +65,7 @@ const accentSpecs = define({
 
 const statusSpecs = define({
   ok: { css: "--ok", value: "#34d77f" },
+  info: { css: "--info", value: "#4b9bff" },
   warn: { css: "--warn", value: "#f2b342" },
   crit: { css: "--crit", value: "#ff5a6a" },
 });
@@ -83,6 +84,7 @@ const textSpecs = define({
 const typographySpecs = define({
   fontUi: { css: "--font-ui", value: "'IBM Plex Sans', system-ui, sans-serif" },
   fontMono: { css: "--font-mono", value: "'JetBrains Mono', ui-monospace, monospace" },
+  fontDisplay: { css: "--font-display", value: "'Fredoka', 'Sora', sans-serif" },
   fsDisplay: { css: "--fs-display", value: "34px" },
   fsH1: { css: "--fs-h1", value: "22px" },
   fsH2: { css: "--fs-h2", value: "16px" },

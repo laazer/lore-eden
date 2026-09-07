@@ -74,6 +74,8 @@ security = [
 ]
 dev = [
     "pytest>=8.3.0",
+    # The shell gate drives it. A wheel, so no system package and no brew.
+    "shellcheck-py>=0.10.0",
     # tomllib is 3.11+, and this package floors at 3.10. The packaging tests
     # read pyproject.toml, so they need a reader that exists on the floor.
     "tomli>=2.0.1",

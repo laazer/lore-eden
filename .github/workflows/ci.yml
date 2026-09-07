@@ -44,7 +44,7 @@ jobs:
       # reporting no growth — correct, but it makes the job useless, so CI
       # installs them rather than exercising the refusal path forever.
       - name: Install the linters the diff filters drive
-        run: python -m pip install --upgrade pip ruff pylint
+        run: python -m pip install --upgrade pip ruff pylint shellcheck-py
 
       - name: Install test dependencies
         run: python -m pip install --upgrade pip pytest
@@ -142,7 +142,7 @@ jobs:
       # reporting no growth — correct, but it makes the job useless, so CI
       # installs them rather than exercising the refusal path forever.
       - name: Install the linters the diff filters drive
-        run: python -m pip install --upgrade pip ruff pylint
+        run: python -m pip install --upgrade pip ruff pylint shellcheck-py
 
       # Positive control, and it runs FIRST. Every gate below can legitimately
       # examine zero files — a docs-only PR gives the TypeScript gate nothing —
@@ -220,13 +220,99 @@ jobs:
             py_organization_check.py \
             py_silent_except_check.py \
             py_git_subprocess_check.py \
-            py_defensive_normalization_check.py
+            py_defensive_normalization_check.py \
+            css_organization_check.py \
+            sh_shellcheck_check.py
           do
             echo "--- $gate"
             python3 "gates/lore_eden_gates/$gate" --repo "$PWD" --scope branch --base "$base"
           done
           echo "--- ts_organization_check.cjs"
           node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope branch --base "$base"
+          # Not diff-scoped and not per-file: it asks whether anything grades
+          # each tracked path at all, which is a property of the repository.
+          echo "--- gate_coverage_check.py"
+          python3 gates/lore_eden_gates/gate_coverage_check.py --repo "$PWD"
+
+      # A real repository with the file untracked, so it is graded whole. Pointing
+      # the gate at a loose file under $PWD instead scopes it to the staged diff,
+      # which is empty, and the run reports nothing — and the *first* version of
+      # this control did exactly that, then passed anyway because the stylesheet
+      # was an orphan. It proved the orphan rule worked and said nothing about
+      # the rule it names. Hence the import, and hence the token source.
+      - name: Positive control — a planted CSS violation must fail the gate
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)/repo"
+          mkdir -p "$control/ts/src"
+          git -C "$control" init -q -b main
+          printf '{"name":"c","private":true}\n' > "$control/package.json"
+          git -C "$control" add -A
+          git -C "$control" commit -qm baseline
+          printf '{"css_token_source":"tokens.ts"}\n' > "$control/.lore-eden-gates.json"
+          printf 'const s = { fsBody: { css: "--fs-body", value: "13px" } };\n' > "$control/tokens.ts"
+          printf '.a { font-size: var(--fsBody); }\n' > "$control/ts/src/planted.css"
+          # Imported, so the orphan rule cannot be what fails this.
+          printf 'import "./planted.css";\n' > "$control/ts/src/App.tsx"
+          if python3 gates/lore_eden_gates/css_organization_check.py \
+               --repo "$control" --scope worktree; then
+            echo "::error::the CSS gate passed a var() naming a property nothing defines"
+            exit 1
+          fi
+          echo "control failed as required"
+
+      - name: Positive control — a planted shell violation must fail the gate
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)/repo"
+          mkdir -p "$control"
+          git -C "$control" init -q -b main
+          printf 'placeholder\n' > "$control/README"
+          git -C "$control" add -A
+          git -C "$control" commit -qm baseline
+          # SC2086, an unquoted variable that word-splits. Severity `info`,
+          # which shellcheck's gcc format collapses into `note` — the first
+          # draft of this gate excluded notes and passed exactly this.
+          printf '#!/bin/sh\nrm $UNQUOTED\n' > "$control/planted.sh"
+          if python3 gates/lore_eden_gates/sh_shellcheck_check.py \
+               --repo "$control" --scope worktree; then
+            echo "::error::the shell gate passed an unquoted variable; it is not working"
+            exit 1
+          fi
+          echo "control failed as required"
+
+      - name: Positive control — an uncovered file must fail the coverage check
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.invalid
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.invalid
+        run: |
+          set -euo pipefail
+          control="$(mktemp -d)/repo"
+          mkdir -p "$control"
+          git -C "$control" init -q -b main
+          # A suffix no gate grades. It was `deploy.sh` until `.sh` became a
+          # graded suffix, at which point this control stopped controlling —
+          # and said so, which is the only reason it is right now.
+          printf 'notes\n' > "$control/CHANGELOG.rst"
+          git -C "$control" add -A
+          git -C "$control" commit -qm baseline
+          if python3 gates/lore_eden_gates/gate_coverage_check.py --repo "$control"; then
+            echo "::error::the coverage check passed a file type no gate grades"
+            exit 1
+          fi
+          echo "control failed as required"
 
       # Positive control for the two diff filters, and it runs before them for
       # the same reason the silent-except control does: they are diff-scoped, so

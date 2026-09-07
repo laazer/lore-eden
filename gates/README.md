@@ -231,3 +231,87 @@ The trees still differ, and these are the reasons:
 * **Dead constants in loregarden's `.cjs`.** `C_ESCAPES`,
   `GIT_LOCATION_ENV_VARS`, `GIT_CONFIG_ENV_PREFIXES`, `TRUNK_REF_CANDIDATES`,
   `tsFilesInScope` and an orphaned doc block survived their rewrite unreferenced.
+## CSS
+
+`css_organization_check` grades `.css`, which every other gate here ignored. The
+globs named `.py`, `.ts` and `.tsx`, so a commit touching only stylesheets ran
+the whole pre-commit stage in under a tenth of a second and printed "no files
+for inspection" for each gate. That is a clean run over nothing at all.
+
+Five rules, diff-scoped like the rest:
+
+| rule | what it catches |
+|---|---|
+| `undefined-token` | `var(--fsBody)` where the token is `--fs-body`. CSS has no error for this: the declaration is invalid at computed-value time and is dropped silently. Needs `css_token_source`. |
+| `token-duplicate-colour` | a colour literal equal to a token's value, in hex or `rgb()`. The same colour in two notations moves in one place and not the other. |
+| `file-length` | over 600 lines, and only on net growth. |
+| `important` | `!important` without a waiver naming a third-party package — and the gate checks the package is a real dependency and not one of ours. |
+| `orphan` | a stylesheet nothing imports. |
+
+Waivers go on the offending line or the one above it:
+
+```css
+color: #6fae8f;          /* css-org: allow-colour (matching a screenshot) */
+z-index: 9 !important;   /* css-org: allow-important (react-datepicker) */
+```
+
+Point the token rules at whatever file defines the repo's custom properties — a
+`.css` with `--name: value` declarations, or a TS/JS module carrying
+`css`/`value` pairs:
+
+```json
+{ "css_token_source": "ts/src/tokens/specs.ts" }
+```
+
+Without it those two rules are off, and the gate says so on every run.
+
+## Shell
+
+`sh_shellcheck_check` drives shellcheck over `.sh`, diff-scoped like the rest.
+It closed a gap the coverage check below had recorded as an exemption: nine
+tracked scripts, two of them the ones git executes on every commit and push,
+and nothing that had ever read one.
+
+shellcheck arrives as a pip wheel (`shellcheck-py`), so this needs no system
+package — the same shape as the two diff filters, which drive `ruff` and
+`pylint`. Absent, it refuses rather than reporting no findings: "the linter is
+not installed" and "the scripts are clean" produce identical output.
+
+Two flags are load-bearing, and neither is optional. Without `-x` shellcheck
+will not open a `source`d file and reports SC1091 on every script that has one.
+Without `--source-path=SCRIPTDIR` it resolves the `# shellcheck source=`
+directive against the current directory rather than the script's own, and still
+cannot find it. The pair is the difference between three notes nobody can act on
+and a clean run.
+
+Findings at `error`, `warning` and `info` fail; `style` does not. `info` is in
+deliberately: SC2086 — an unquoted variable that word-splits, the most common
+shell defect there is — is `info`, and shellcheck's gcc format collapses `info`
+and `style` into one label. A first draft read gcc output, excluded notes, and
+passed a planted `rm $UNQUOTED`. Reading JSON is what makes the two separable.
+
+## Is anything looking at this file at all?
+
+`gate_coverage_check` asks the question one level up from the others. It reads
+the index, maps each tracked path to the gate that grades its suffix, and fails
+on any path nothing grades and nothing has excused.
+
+An uncovered path is not automatically a defect — plenty of file types need no
+gate. What they need is for somebody to have decided, which is what the
+configuration records:
+
+```json
+{
+  "ungated_globs": {
+    "*.md": "prose; no markdown linter this repo has agreed to",
+    "LICENSE": "verbatim licence text"
+  }
+}
+```
+
+A reason, not a bare list: an exemption nobody had to justify is how a file type
+goes ungraded for a year without anyone choosing it. An exemption that matches
+nothing fails too, so the list describes the repo rather than its history.
+
+It is not diff-scoped — coverage is a whole-repository property — and it reads
+the index rather than the files, so it costs milliseconds.

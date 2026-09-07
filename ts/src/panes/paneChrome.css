@@ -26,8 +26,8 @@
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  border-bottom: 1px solid var(--bd);
-  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
   min-width: 0;
 }
 
@@ -41,7 +41,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--txm);
+  color: var(--dim);
   font-size: 11.5px;
   font-weight: 500;
   letter-spacing: 0.01em;
@@ -50,7 +50,7 @@
 
 /* An unconfigured pane says so in the header too, not only in its body. */
 .pane-header-title.is-empty {
-  color: var(--txl);
+  color: var(--faint);
   font-weight: 400;
   font-style: italic;
 }
@@ -61,7 +61,7 @@
   width: 1px;
   align-self: stretch;
   margin: 2px 2px;
-  background: var(--bd);
+  background: var(--border);
   flex: none;
 }
 
@@ -83,8 +83,8 @@
   min-width: 0;
   overflow: auto;
   background:
-    radial-gradient(100% 80% at 50% 42%, rgba(111, 174, 143, 0.045), transparent 70%),
-    var(--bg0);
+    radial-gradient(100% 80% at 50% 42%, color-mix(in srgb, var(--accent-bright) 4%, transparent), transparent 70%),
+    var(--canvas-ink);
 }
 
 /* The prompt is an instruction, not content to select. On a canvas the gesture
@@ -97,17 +97,17 @@
 }
 
 .pane-empty-eyebrow {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--txl);
+  color: var(--faint);
 }
 
 .pane-empty-hint {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--txm);
+  color: var(--dim);
   max-width: 34ch;
   margin: 0;
 }
@@ -128,11 +128,11 @@
 }
 
 .primitive-picker-legend {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--txl);
+  color: var(--faint);
   margin-bottom: 7px;
 }
 
@@ -144,22 +144,22 @@
   text-align: left;
   cursor: pointer;
   border-radius: 10px;
-  border: 1px solid var(--bd);
-  background: var(--bg1);
-  color: var(--tx);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
   padding: 8px 10px;
-  font-family: var(--ui);
+  font-family: var(--font-ui);
   transition: all 0.2s ease;
 }
 
 .primitive-option:hover {
-  background: var(--bg2);
-  border-color: var(--bd2);
+  background: var(--bg-2);
+  border-color: var(--border-2);
 }
 
 .primitive-option:focus-visible {
   outline: none;
-  border-color: var(--ac);
+  border-color: var(--accent);
 }
 
 /* The glyph gets a tile of its own so the row has a fixed left edge whatever
@@ -172,9 +172,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: var(--bg3);
-  color: var(--ac2);
-  font-family: var(--mono);
+  background: var(--surface);
+  color: var(--accent-bright);
+  font-family: var(--font-mono);
   font-size: 12.5px;
 }
 
@@ -195,11 +195,11 @@
 }
 
 .primitive-option-category {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--txl);
+  color: var(--faint);
 }
 
 /* The settings panel shrinks and scrolls rather than overflowing.
@@ -239,33 +239,33 @@
   text-align: center;
   max-width: 420px;
   padding: 22px 26px;
-  border: 1px solid var(--bd);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg1);
+  background: var(--bg);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.32);
 }
 
 .canvas-empty-title {
-  font-family: var(--dp);
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 600;
-  color: var(--tx);
+  color: var(--text);
   margin: 0;
 }
 
 .canvas-empty-hint {
   font-size: 12px;
   line-height: 1.55;
-  color: var(--txm);
+  color: var(--dim);
   margin: 0;
 }
 
 .canvas-empty-hint kbd {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--tx);
-  background: var(--bg3);
-  border: 1px solid var(--bd2);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: 4px;
   padding: 1px 5px;
 }
@@ -283,8 +283,8 @@
    of one. A seventh copy for this panel is the bug 555 was, rewritten. */
 .pane-settings-panel {
   padding: 8px;
-  border-bottom: 1px solid var(--bd);
-  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .pane-settings {
@@ -335,7 +335,7 @@
   flex: none;
   width: 15px;
   height: 15px;
-  accent-color: var(--ac);
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -343,7 +343,7 @@
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--txl);
+  color: var(--faint);
 }
 
 /* A refusal is not a hint, and must not read as one. */
@@ -351,7 +351,7 @@
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--red);
+  color: var(--crit);
 }
 
 .pane-settings-actions {
@@ -386,16 +386,16 @@
 
 .pane-unconfigured-lead {
   font-size: 12.5px;
-  color: var(--txm);
+  color: var(--dim);
 }
 
 .pane-unconfigured-hint {
   font-size: 11.5px;
-  color: var(--txl);
+  color: var(--faint);
 }
 
 .pane-unconfigured-hint b {
-  color: var(--txm);
+  color: var(--dim);
   font-weight: 500;
 }
 

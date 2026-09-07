@@ -56,15 +56,14 @@ from interpreter import require_python  # noqa: E402 - sys.path is set up just a
 # needed to *import* them, so a check that ran later would never run at all.
 require_python()
 
+from gate_cli import guarded  # noqa: E402 - sys.path is set up above
 from house_rules import (  # noqa: E402 - sys.path is set up just above
     HouseRules,
-    HouseRulesError,
     load_house_rules,
 )
 from precommit_git_diff import (  # noqa: E402 - same
     DEFAULT_BASE_REF,
     STAGED,
-    UnexaminableError,
     UnexaminableFileError,
     git_repo_root,
     read_source_text,
@@ -233,16 +232,7 @@ def parse_argv(argv: list[str]) -> Invocation:
 
 def main(argv: list[str]) -> int:
     invocation = parse_argv(argv)
-    try:
-        return _check(invocation)
-    except HouseRulesError as exc:
-        # A malformed config is not "nothing to report" — it is a gate that
-        # never ran.
-        print(f"{invocation.label}: {exc}")
-        return 1
-    except UnexaminableError as exc:
-        print(f"{invocation.label}: cannot determine what to examine: {exc}")
-        return 1
+    return guarded(invocation.label, lambda: _check(invocation))
 
 
 def _check(invocation: Invocation) -> int:
