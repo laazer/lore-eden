@@ -310,3 +310,51 @@ class TestScopeComesFromTheResolver:
         assert "duplicates existing code" not in output(result), output(result)
         assert result.returncode == 0, output(result)
         assert "examined 1 file(s)" in output(result)
+
+
+class TestJsxIsDecidedByExtension:
+    """TypeScript's own rule, not a preference: `<T>` is a type parameter in a
+    `.ts` file and a JSX element in a `.tsx` one. The two readings are mutually
+    exclusive, which is why the language splits them by suffix.
+
+    The gate passed `jsx: true` for everything. A `.ts` file with a generic —
+    `useQuery<DataPage<Record>>(...)` — failed to parse, became an
+    UnexaminableFileError, and took the whole run down. Nothing in this package
+    has a generic in a `.ts` file, so it was invisible here and surfaced the
+    first time the gate was pointed at a real consuming repo.
+    """
+
+    # A generic *arrow function*, which is the ambiguous case and the one that
+    # actually broke. `function first<T>(…)` is unambiguous even under
+    # `jsx: true` — a first version of this fixture used that and passed with
+    # the bug still in place. This is the construct found by bisecting the file
+    # that took the real run down:
+    #     export const usePostStageLaunch = <C>(id: string, changeset: C) => {
+    GENERIC_TS = (
+        "export const firstOf = <T>(items: T[]): T | undefined => {\n"
+        "  return items[0];\n"
+        "};\n"
+    )
+
+    def test_a_generic_in_a_ts_file_parses(self, repo):
+        ts_repo(repo, "src/generic.ts", self.GENERIC_TS)
+        result = run_gate(repo)
+        assert result.returncode == 0, output(result)
+        assert "could not parse" not in output(result)
+        assert "examined 1 file(s)" in output(result)
+
+    def test_jsx_in_a_tsx_file_still_parses(self, repo):
+        # The control for the above: narrowing jsx to `.tsx` must not stop
+        # `.tsx` files being read as JSX.
+        ts_repo(repo, "src/Greeting.tsx", CLEAN_TSX)
+        result = run_gate(repo)
+        assert result.returncode == 0, output(result)
+        assert "could not parse" not in output(result)
+        assert "examined 1 file(s)" in output(result)
+
+    def test_a_genuinely_unparseable_file_is_still_refused(self, repo):
+        # The other control: this must not have become "parse errors are fine".
+        ts_repo(repo, "src/broken.ts", "export function ( { { {\n")
+        result = run_gate(repo)
+        assert result.returncode == 1, output(result)
+        assert "could not parse" in output(result)
