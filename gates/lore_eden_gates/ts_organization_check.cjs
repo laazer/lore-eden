@@ -102,8 +102,24 @@ function parseFile(filePath, content) {
   // to run, not a parse failure, and it must not be swallowed into `null` and
   // read as "nothing found here".
   const parse = loadParse(gradedRepoRoot);
+  // JSX by extension, which is TypeScript's own rule rather than a preference:
+  // in a `.ts` file `<T>` opens a type parameter, and in a `.tsx` file it opens
+  // a JSX element. The two readings are mutually exclusive, which is why the
+  // language splits them by suffix.
+  //
+  // This passed `jsx: true` for everything. On a `.ts` file with a generic —
+  // `useQuery<DataPage<Record>>(...)` — the parser reports "Unexpected token.
+  // Did you mean `{'>'}`?", `parseGradedFile` turns that into an
+  // UnexaminableFileError, and the gate refuses the whole run. Correct
+  // behaviour on a wrong premise: the file parses fine, under the rule its
+  // extension asks for.
+  //
+  // Invisible here, because nothing in this package has a generic in a `.ts`
+  // file. It surfaced the first time the gate was pointed at a real consumer,
+  // which is the entire argument for cutting one over.
+  const jsx = filePath.endsWith(".tsx") || filePath.endsWith(".jsx");
   try {
-    return parse(content, { jsx: true, loc: true, range: false, comment: false });
+    return parse(content, { jsx, loc: true, range: false, comment: false });
   } catch {
     return null;
   }
