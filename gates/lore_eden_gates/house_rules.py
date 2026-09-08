@@ -77,6 +77,15 @@ class HouseRules:
     #: name the tokens cannot tell a typo from a property the consumer supplies.
     css_token_source: str = ""
 
+    #: Managed gate name -> why this repo does not want it, e.g.
+    #: ``{"lore-eden-py-organization": "we run our own, and two rule sets over
+    #: one staged file is the double-gating this library exists to prevent"}``.
+    #: Read by the installer, which omits those entries from the managed block
+    #: on every run — a hand-edit would be silently restored, because the block
+    #: is regenerated. A reason, not a bare list, for the same purpose as
+    #: ``ungated_globs``: the next reader needs to know whether it still holds.
+    excluded_gates: dict[str, str] = field(default_factory=dict)
+
     #: Glob -> why it needs no gate, for every tracked path no gate grades.
     #: Read by ``gate_coverage_check``: a file type nobody decided about is the
     #: thing that rule exists to surface, so the exemption carries a reason
@@ -103,12 +112,13 @@ _FIELDS = {
     "git_subprocess_helper_path",
     "css_token_source",
     "ungated_globs",
+    "excluded_gates",
 }
 
 #: The one key whose value is an object rather than a string. Kept explicit so
 #: the type check below stays a whitelist: a new string key needs no change
 #: here, and a new structured one has to be added on purpose.
-_OBJECT_FIELDS = {"ungated_globs"}
+_OBJECT_FIELDS = {"ungated_globs", "excluded_gates"}
 
 
 def _validate_value(config_path: Path, key: str, value: object) -> None:

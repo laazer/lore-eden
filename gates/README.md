@@ -177,6 +177,33 @@ An unknown key or a malformed file raises rather than defaulting. A repo that
 meant to configure a gate and typed the key wrongly should hear about it, not
 get the unconfigured behaviour it was trying to leave.
 
+## Declining a gate the repo already has
+
+A repo that already runs its own equivalent must be able to say no, or
+installing this block puts two rule sets over the same staged files — the
+double-gating this library exists to prevent.
+
+```json
+{
+  "excluded_gates": {
+    "lore-eden-py-organization": "we run our own via task server:organize:changed"
+  }
+}
+```
+
+The exclusion lives in the target repo's config rather than in an installer
+flag, because **the managed block is regenerated on every install**: a
+hand-edit, or a one-off `--exclude`, would be silently undone by the next
+refresh. The reason is written into the block itself, so a gate missing from it
+reads as a decision rather than as an install that went wrong. An unknown gate
+name is refused and nothing is written — a typo that silently installed the gate
+the repo meant to decline is the failure this prevents.
+
+Found cutting loremaker over: its `lefthook.yml` names no gate commands, so the
+ticket recorded it collision-free, but `server-pre-commit.sh` reaches
+`task server:organize:changed` → `server-organize-changed.sh` → its own
+313-line `py_organization_check.py`.
+
 ## Checking a repo without changing it
 
 ```bash
