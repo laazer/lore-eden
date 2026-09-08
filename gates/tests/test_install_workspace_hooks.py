@@ -7,6 +7,7 @@ rather than an error anybody sees.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -239,3 +240,111 @@ def test_external_install_keeps_the_absolute_path(tmp_path):
 
     text = config.read_text(encoding="utf-8")
     assert str(GATES_ROOT / "py_organization_check.py") in text
+
+
+class TestExcludedGates:
+    """A repo that already has an equivalent gate must be able to decline ours.
+
+    Found cutting loremaker over. Its `lefthook.yml` names no gate commands, so
+    the ticket recorded it as collision-free — but its `server-pre-commit.sh`
+    reaches `task server:organize:changed` -> `server-organize-changed.sh` ->
+    its own 313-line `py_organization_check.py`. Installing ours on top would
+    put two organization gates with two rule sets over the same staged files,
+    which is the double-gating this library exists to prevent.
+
+    The exclusion lives in the target repo's config rather than in a flag
+    because the managed block is *regenerated* on every install: a hand-edit or
+    a one-off `--exclude` would be silently undone by the next refresh.
+    """
+
+    EXCLUDED = {
+        "excluded_gates": {
+            "lore-eden-py-organization": "we run our own via task server:organize:changed",
+            "lore-eden-ts-organization": "we run our own via task client:organize:changed",
+        }
+    }
+
+    def _repo(self, tmp_path: Path, config: dict | None = None) -> Path:
+        root = tmp_path / "target"
+        root.mkdir()
+        (root / ".git").mkdir()
+        (root / "lefthook.yml").write_text(
+            "pre-commit:\n  parallel: true\n  commands:\n    own:\n      run: echo hi\n",
+            encoding="utf-8",
+        )
+        if config is not None:
+            (root / ".lore-eden-gates.json").write_text(
+                json.dumps(config) + "\n", encoding="utf-8"
+            )
+        return root
+
+    def _install(self, root: Path):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(INSTALLER),
+                "--config",
+                str(root / "lefthook.yml"),
+                "--gates-root",
+                str(GATES_ROOT),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def _installed(self, root: Path) -> list[str]:
+        return [
+            line.strip().rstrip(":")
+            for line in (root / "lefthook.yml").read_text(encoding="utf-8").splitlines()
+            if line.strip().startswith("lore-eden-") and line.strip().endswith(":")
+        ]
+
+    def test_every_gate_is_installed_when_nothing_is_excluded(self, tmp_path):
+        # The control: without this, "8 installed" could mean the block broke.
+        root = self._repo(tmp_path)
+        assert self._install(root).returncode == 0
+        assert len(self._installed(root)) == len(MANAGED_COMMAND_NAMES)
+
+    def test_an_excluded_gate_is_omitted(self, tmp_path):
+        root = self._repo(tmp_path, self.EXCLUDED)
+        assert self._install(root).returncode == 0
+        installed = self._installed(root)
+        assert "lore-eden-py-organization" not in installed
+        assert "lore-eden-ts-organization" not in installed
+        assert len(installed) == len(MANAGED_COMMAND_NAMES) - 2
+
+    def test_the_others_are_still_installed(self, tmp_path):
+        root = self._repo(tmp_path, self.EXCLUDED)
+        self._install(root)
+        assert "lore-eden-css-organization" in self._installed(root)
+
+    def test_the_reason_is_written_into_the_block(self, tmp_path):
+        # A gate missing from the block must read as a decision, not as an
+        # install that went wrong.
+        root = self._repo(tmp_path, self.EXCLUDED)
+        self._install(root)
+        text = (root / "lefthook.yml").read_text(encoding="utf-8")
+        assert "# Not installed — lore-eden-py-organization:" in text
+        assert "task server:organize:changed" in text
+
+    def test_a_refresh_does_not_restore_them(self, tmp_path):
+        # The whole reason this is config and not a flag. The block is
+        # regenerated on every install, so a hand-edit would not survive one.
+        root = self._repo(tmp_path, self.EXCLUDED)
+        self._install(root)
+        self._install(root)
+        assert len(self._installed(root)) == len(MANAGED_COMMAND_NAMES) - 2
+
+    def test_an_unknown_gate_name_is_refused(self, tmp_path):
+        # A typo that silently installed the gate the repo meant to decline is
+        # exactly the double-gating this feature prevents.
+        root = self._repo(tmp_path, {"excluded_gates": {"lore-eden-py-organisation": "typo"}})
+        result = self._install(root)
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert "unknown gate" in result.stderr
+        assert self._installed(root) == [], "and nothing was written"
+
+    def test_an_exclusion_without_a_reason_is_refused(self, tmp_path):
+        root = self._repo(tmp_path, {"excluded_gates": {"lore-eden-py-organization": ""}})
+        assert self._install(root).returncode == 1
