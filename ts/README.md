@@ -520,6 +520,28 @@ import { Field, TextInput, Button, Toast } from '@lore-eden/ui';
 <Toast message="Saved" tone="ok" duration={4000} onDismiss={hide} />
 ```
 
+### A confirm step
+
+`ConfirmDialog` is the confirm-before-it-changes-what-others-see step, with an
+optional required reason. It holds focus while open and returns it to the opener
+on close (`useDialogFocusTrap`), closes on Escape — only the innermost dialog's
+(`useDialogDismiss`) — and while `busy` disables every control and ignores both
+Escape and the backdrop, so one click is one action. Both hooks are exported for
+dialogs of your own.
+
+```tsx
+<ConfirmDialog
+  open={confirming}
+  title="Discredit this learning?"
+  reasonLabel="Reason (stored with the change)"
+  confirmLabel="Discredit"
+  danger
+  busy={saving}
+  onCancel={close}
+  onConfirm={(reason) => save(reason)}
+/>
+```
+
 ### The source had no styling
 
 This is the one extraction where the plan's premise turned out to be wrong. The
