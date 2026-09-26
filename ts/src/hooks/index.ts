@@ -5,3 +5,5 @@ export * from './useEventListener';
 export * from './useThrottle';
 export * from './useMousePosition';
 export * from './useAnchoredPanelPosition';
+export * from './useDialogFocusTrap';
+export * from './useDialogDismiss';

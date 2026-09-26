@@ -883,3 +883,26 @@ cannot invent a module the reader does not have. Point it at this one in
 ```
 
 This repo sets exactly that, so the rule now applies to `lore_eden` itself.
+
+## Confidence from graded outcomes
+
+`lore_eden.confidence` folds graded outcomes into a Beta posterior. The host
+decides how much of each outcome is success and how much failure; this module
+does the arithmetic, and does it so that any ordering of the same evidence
+scores identically (`math.fsum`, not a running `+=`), the lower bound narrows
+as evidence accumulates, and a fresh failure outweighs an old success.
+
+```python
+from lore_eden.confidence import Evidence, score
+
+posterior = score([Evidence(1.0, 0.0, when) for when in passes], as_of=now)
+posterior.mean, posterior.lower_bound, posterior.trusted()
+```
+
+## Row history
+
+`lore_eden.store.row_history.RowHistory` keeps the version of a SQLite row that
+an upsert is about to replace, inside the caller's transaction: nothing for a
+create or an unchanged write, NULL (never `''`) for attribution nobody gave,
+and the newest `keep` versions per key with numbering that continues past the
+prune.
