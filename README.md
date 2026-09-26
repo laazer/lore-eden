@@ -132,6 +132,65 @@ enforces an idle timeout distinctly from a hard one (a silent agent and a slow
 agent are different problems), and `PermissionBridge` turns the agent's
 tool-permission prompts into decisions a host can approve, deny, or defer.
 
+## Local instances
+
+`lore_eden.instances` runs a project's servers and dev clients on free ports and
+lets anything on the machine find them. A UI-only change runs a *branch client*
+against the shared *main* server; a server change runs a *branch server* on a
+port of its own, with a client pointed at it.
+
+```python
+from lore_eden.instances import (
+    CommandTemplate, FileInstanceRegistry, InstanceKind, InstanceManager,
+    TemplateCatalog, TemplateParam, make_instances_router, register_self,
+)
+
+templates = TemplateCatalog()
+templates.register(CommandTemplate(
+    project="shop", name="api", kind=InstanceKind.SERVER,
+    command=["uvicorn", "shop.main:app", "--port", "{port}"],
+    cwd="{param:checkout}/server",
+    params=[TemplateParam(key="checkout", label="Checkout", required=True)],
+))
+manager = InstanceManager(FileInstanceRegistry(), templates)
+app.include_router(make_instances_router(manager), prefix="/api/instances")
+
+# At startup, so tools can find the main server:
+handle = register_self(FileInstanceRegistry(), project="shop", name="main",
+                       kind=InstanceKind.SERVER, host="127.0.0.1", port=8000)
+```
+
+**Launching takes a template name, never a command.** The endpoint runs
+processes, so the host decides in code what can run. A template with setup to
+do — snapshotting a database, say — implements `InstanceTemplate` instead of
+using `CommandTemplate`.
+
+The registry is one JSON file per instance under `~/.lore-eden/instances`
+(`$LORE_EDEN_INSTANCES_DIR` overrides it), so finding a server needs no control
+plane to be running:
+
+```bash
+python -m lore_eden.instances --project shop url main   # exits 1 when none is live
+python -m lore_eden.instances list
+```
+
+State is worked out when a record is read, not taken from the file. A record
+only says a process was started; the process table says whether it is still
+running. An instance that crashes stays listed as `exited`, with its exit code and
+log, until someone dismisses it. It does not just drop off the list. Readiness is
+probed on read, so launch returns straight away and a UI polling the list is what
+moves an instance from `starting` to `ready`. Each launch gets its own process
+group, and stop signals the whole group, so forked workers do not keep the port.
+POSIX only.
+
+The UI half is `InstancesPanel` in `@lore-eden/ui`, over `createInstancesClient`
+and `useInstances` for a host that wants its own layout:
+
+```tsx
+const client = useMemo(() => createInstancesClient('/api/instances'), []);
+<InstancesPanel client={client} project="shop" onError={(title, e) => toast(title, e)} />
+```
+
 ## The UI kit
 
 ```bash
