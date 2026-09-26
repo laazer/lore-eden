@@ -24,3 +24,4 @@ export * from './sockets';
 export { OverflowMenu, OverflowMenuItem, OverflowMenuSection } from './components/OverflowMenu';
 export { TabView, TAB_DIVIDER, reconcileSelection } from './components/TabView';
 export type { TabDefinition, TabEntry, TabViewProps } from './components/TabView';
+export * from './instances';
