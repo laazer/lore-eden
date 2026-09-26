@@ -906,3 +906,11 @@ an upsert is about to replace, inside the caller's transaction: nothing for a
 create or an unchanged write, NULL (never `''`) for attribution nobody gave,
 and the newest `keep` versions per key with numbering that continues past the
 prune.
+
+## Near-duplicates and trends
+
+`lore_eden.similarity.near_duplicate_pairs` proposes merge candidates from
+caller-supplied term sets: deterministic, capped, and never pairing two items
+the caller knows disagree. `lore_eden.trend.compare` sets one reading of
+"a rise is bad" metrics against the previous one, ignores wobble below a
+threshold, and names a single metric to watch.
