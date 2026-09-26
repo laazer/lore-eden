@@ -21,7 +21,7 @@ managed over HTTP by the router a host mounts:
         params=[TemplateParam(key="checkout", label="Checkout", required=True)],
     ))
     manager = InstanceManager(FileInstanceRegistry(), templates)
-    app.include_router(make_instances_router(manager), prefix="/api/instances")
+    app.include_router(make_instances_router(lambda: manager), prefix="/api/instances")
 
 The main instance advertises itself with :func:`register_self` at startup.
 Anything else finds it with ``python -m lore_eden.instances url main``.

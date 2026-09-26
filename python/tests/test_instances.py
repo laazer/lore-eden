@@ -276,7 +276,7 @@ def test_a_self_registered_live_instance_cannot_be_stopped(manager: InstanceMana
 @pytest.fixture
 def client(manager: InstanceManager) -> TestClient:
     app = FastAPI()
-    app.include_router(make_instances_router(manager), prefix="/api/instances")
+    app.include_router(make_instances_router(lambda: manager), prefix="/api/instances")
     return TestClient(app)
 
 

@@ -153,7 +153,7 @@ templates.register(CommandTemplate(
     params=[TemplateParam(key="checkout", label="Checkout", required=True)],
 ))
 manager = InstanceManager(FileInstanceRegistry(), templates)
-app.include_router(make_instances_router(manager), prefix="/api/instances")
+app.include_router(make_instances_router(lambda: manager), prefix="/api/instances")
 
 # At startup, so tools can find the main server:
 handle = register_self(FileInstanceRegistry(), project="shop", name="main",
