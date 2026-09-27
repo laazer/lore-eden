@@ -5,6 +5,7 @@ import {
   createInstancesClient,
   InstancesApiError,
   InstancesPanel,
+  LaunchForm,
 } from '../src/instances';
 import type { InstancesClient, InstanceListing, InstanceView, TemplateInfo } from '../src/instances';
 
@@ -180,5 +181,19 @@ describe('InstancesPanel', () => {
     fireEvent.click(toggle);
     expect(await screen.findByLabelText('Log for demo-api-abc123')).toHaveTextContent('booted');
     expect(screen.getByRole('button', { name: 'Hide log' })).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('LaunchForm', () => {
+  it('keeps what was typed when the host hands it a fresh templates list', () => {
+    // The panel re-fetches templates as it polls; every fetch is a new array
+    // of new objects. Typed values must survive that, not reset to defaults.
+    const onLaunch = vi.fn();
+    const { rerender } = render(<LaunchForm templates={TEMPLATES} launching={false} onLaunch={onLaunch} />);
+    fireEvent.change(screen.getByLabelText('Worktree (required)'), { target: { value: '/w/feat-x' } });
+    rerender(<LaunchForm templates={structuredClone(TEMPLATES)} launching={false} onLaunch={onLaunch} />);
+    expect(screen.getByLabelText('Worktree (required)')).toHaveValue('/w/feat-x');
+    fireEvent.click(screen.getByRole('button', { name: 'Launch' }));
+    expect(onLaunch).toHaveBeenCalledWith({ template: 'server', name: undefined, params: { worktree: '/w/feat-x' } });
   });
 });
