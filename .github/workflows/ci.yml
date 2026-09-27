@@ -228,16 +228,24 @@ jobs:
             echo "--- $gate"
             python3 "gates/lore_eden_gates/$gate" --repo "$PWD" --scope branch --base "$base"
           done
-          echo "--- ts_organization_check.cjs"
-          node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" --scope branch --base "$base"
+          for gate in \
+            ts_organization_check.cjs \
+            ts_no_silent_failures_check.cjs \
+            ts_ux_states_check.cjs
+          do
+            echo "--- $gate"
+            node "gates/lore_eden_gates/$gate" --repo "$PWD" --scope branch --base "$base"
+          done
           # Named explicitly: discovery is confined to the TypeScript project
-          # directory, and this file is not in it. The hook grades it because
-          # lefthook passes staged paths, so without this line CI would be the
-          # only place that never read the one `.cjs` the coverage check claims
-          # is graded.
-          echo "--- ts_organization_check.cjs (grading itself)"
-          node gates/lore_eden_gates/ts_organization_check.cjs --repo "$PWD" \
-            --scope branch --base "$base" gates/lore_eden_gates/ts_organization_check.cjs
+          # directory, and the gates' own `.cjs` are not in it. Without this CI
+          # would be the only place that never read the `.cjs` files the
+          # coverage check claims are graded. Only the gates that grade `.cjs`:
+          # the UX gate's rules are about JSX, which a `.cjs` cannot contain.
+          for gate in ts_organization_check.cjs ts_no_silent_failures_check.cjs; do
+            echo "--- $gate (grading the gates' own .cjs)"
+            node "gates/lore_eden_gates/$gate" --repo "$PWD" \
+              --scope branch --base "$base" gates/lore_eden_gates/*.cjs
+          done
           # Not diff-scoped and not per-file: it asks whether anything grades
           # each tracked path at all, which is a property of the repository.
           echo "--- gate_coverage_check.py"

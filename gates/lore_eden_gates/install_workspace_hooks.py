@@ -104,6 +104,26 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
         "ts_organization_check.cjs",
         TS_GLOB,
     ),
+    # py_silent_except_check's counterpart. A `catch {}` in a `.tsx` file
+    # passed every gate this block installed, including in lore-eden's own
+    # `ts/` kit.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-ts-silent-failures",
+        "TypeScript silently-caught failures",
+        "node",
+        "ts_no_silent_failures_check.cjs",
+        TS_GLOB,
+    ),
+    # The mechanical half of policy/ux-definition-of-done.md: an unnamed
+    # icon button, an onClick a keyboard cannot reach, a backdrop only a mouse
+    # can dismiss, a fetched list with no empty state.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-ts-ux-states",
+        "TypeScript UX states",
+        "node",
+        "ts_ux_states_check.cjs",
+        TS_GLOB,
+    ),
     # Stylesheets, which every gate above this line ignored. A commit touching
     # only `.css` matched no glob, so the whole stage printed "no files for
     # inspection" and passed — which is how 81 declarations naming a custom

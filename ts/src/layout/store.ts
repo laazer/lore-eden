@@ -78,7 +78,7 @@ export class LayoutQueue {
       () => this.apply(edit),
       () => this.apply(edit),
     );
-    // The tail swallows rejection so the next edit still runs; the caller keeps
+    // silent-ok: the tail swallows rejection so the next edit still runs; the caller keeps
     // the real outcome through the promise it was handed.
     this.tail = run.catch(() => undefined);
     return run;
