@@ -1,0 +1,120 @@
+/*
+ * The colour control, on tokens only.
+ *
+ * The source styled this with a `colorPickerStyles` object of literal hex —
+ * `#3c3c3c` fields, `#0e639c` for the active tab — so it stayed dark while the
+ * rest of an app went light. Every value here is a `var()` from `tokens/`, and
+ * the buttons and field are the kit's own, so this sheet only lays them out.
+ */
+
+.le-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+
+.le-color-label {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-med);
+  color: var(--dim);
+}
+
+.le-color-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+.le-color-field {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.le-color-hex {
+  font-family: var(--font-mono);
+}
+
+.le-color-actions {
+  display: inline-flex;
+  gap: var(--sp-1);
+}
+
+/* The native picker, drawn as a swatch the same height as the text field. */
+.le-color-native {
+  flex: 0 0 auto;
+  inline-size: var(--sp-6);
+  block-size: var(--sp-6);
+  padding: 0;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  cursor: pointer;
+}
+
+.le-color-native:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.le-color-native:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}
+
+/* A segmented control: the kit's ghost buttons, joined, with the pressed one
+   in the accent. */
+.le-color-segments {
+  display: inline-flex;
+}
+
+.le-color-segments .le-btn {
+  border-radius: 0;
+}
+
+.le-color-segments .le-btn:first-child {
+  border-start-start-radius: var(--r-sm);
+  border-end-start-radius: var(--r-sm);
+}
+
+.le-color-segments .le-btn:last-child {
+  border-start-end-radius: var(--r-sm);
+  border-end-end-radius: var(--r-sm);
+}
+
+.le-color-segments .le-btn + .le-btn {
+  margin-inline-start: -1px;
+}
+
+.le-color-segments .le-btn[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.le-color-swatch-row,
+.le-color-swatch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.le-color-swatch {
+  display: inline-block;
+  inline-size: var(--sp-6);
+  block-size: var(--sp-5);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+}
+
+/* Empty is shown as empty — a dashed outline over the surface — rather than as
+   black, which reads as a colour somebody chose. */
+.le-color-swatch--empty {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+
+.le-color-swatch--disabled {
+  opacity: 0.5;
+}
