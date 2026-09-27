@@ -655,3 +655,49 @@ Three details worth keeping:
 
 The backoff resets when a connection *opens*, not when data arrives: a socket
 nobody talks on would otherwise creep to the ceiling across quiet reconnects.
+
+### Server-sent streams
+
+A long-running command that writes progress and then finishes once is the
+`EventSource` shape, and `openEventStream` is its wiring. The caller supplies
+the URL and its own event names, split into **progress** events and
+**terminal** ones; nothing about any host's paths or payloads is built in.
+
+```ts
+const dispose = openEventStream<{ log: { line: string } }, { done: { file: string }; error: { message: string } }>({
+  url: `/api/run/stream?${params}`,
+  progress: { log: (data) => append(typeof data === 'string' ? data : data.line) },
+  terminal: { done: (data) => finished(data), error: (data) => failed(data) },
+  onTransportError: () => failed('Connection lost'),
+});
+```
+
+A payload that is a JSON object is parsed; anything else — text that is not
+JSON, or JSON that is not an object (`42`, `true`, `null`, `[1]`) — reaches the
+handler as its raw text rather than throwing. The declared payload type is a
+declaration, not a check, so a handler sees `T | string`.
+
+- **A terminal event fires exactly once and closes the stream.** A browser
+  checks `readyState` before dispatching each queued event and before
+  reporting a reconnect, so once closed it delivers neither a queued `log` nor
+  the transport error for the server ending the connection it just finished
+  on — a run that succeeded is not reported as failed. Disposing closes the
+  stream the same way.
+- **Listeners also check a `settled` flag after finish or dispose.** This is
+  defence in depth, not a fix for browser behaviour: it covers polyfills and
+  fakes that keep dispatching after `close()`, and handlers that re-enter.
+- **A server event named `error` is not the transport's `error`.** The browser
+  dispatches its transport error under that name too, with no data. The source
+  parsed it as the server's event, so every dropped connection read as
+  "Stream error" and its own "Connection lost" branch never ran.
+- **Closed before the terminal handler runs**, so a handler that throws cannot
+  leave the browser reconnecting to a stream that already finished.
+
+It is deliberately **not** built on `ReconnectingSocket` and shares no policy
+type with it. `ReconnectPolicy` is a client-side backoff; `EventSource`
+reconnects by itself after a delay the *server* sets with `retry:`, so a shared
+policy would be a setting this could accept and not honour. A dropped
+connection is terminal by default, because a finishing stream whose server does
+not resume from `Last-Event-ID` replays or restarts on reconnect; pass
+`reconnect: true` to let the browser retry, and `onTransportError` then runs
+only once it gives up.

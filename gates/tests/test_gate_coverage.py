@@ -24,6 +24,9 @@ from gate_coverage_check import (  # noqa: E402
     unused_globs,
 )
 from house_rules import HouseRulesError, load_house_rules  # noqa: E402
+from install_workspace_hooks import MANAGED_GATES  # noqa: E402
+
+GATES_DIR = Path(__file__).resolve().parent.parent / "lore_eden_gates"
 
 
 class TestUncovered:
@@ -152,6 +155,22 @@ class TestEndToEnd:
         assert ".css" in GATED_SUFFIXES
         assert ".sh" in GATED_SUFFIXES
         assert ".cjs" in GATED_SUFFIXES
+
+    def test_every_installed_gate_is_named_against_a_suffix(self):
+        # The map is the coverage claim. A gate installed but named against no
+        # suffix is coverage nobody accounted for; a name with no script behind
+        # it is coverage that does not exist.
+        named = {
+            name.strip() for names in GATED_SUFFIXES.values() for name in names.split(",")
+        }
+        installed = {
+            gate.script.rsplit(".", 1)[0]
+            for gate in MANAGED_GATES
+            if not gate.script.endswith("_diff_filter.py")
+        }
+        assert installed <= named, installed - named
+        for name in named:
+            assert any((GATES_DIR / f"{name}{ext}").is_file() for ext in (".py", ".cjs")), name
 
     def test_tracked_paths_reads_real_git(self, repo):
         repo.write("app/x.py", "A = 1\n")
