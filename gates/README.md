@@ -41,6 +41,7 @@ report a file clean.
 | `py_defensive_normalization_check.py` | `str(x).strip().lower()` in a comparison — re-normalizing a value that should be constrained at its source |
 | `ts_organization_check.cjs` | File size caps, no `fetch`/`axios` in `.tsx`, duplicate bodies, cross-codebase DRY, barrel size, inline `instanceof Error` ternaries |
 | `ts_no_silent_failures_check.cjs` | A `catch` that neither rethrows, records nor surfaces; a console-only `catch`; `.catch(() => {})` / `.catch(console.error)`; `Promise.all`/`allSettled` over raw `fetch` with no `.ok` check in the file |
+| `ts_ux_states_check.cjs` | An icon-only `<button>`/`<a>` with no accessible name; `onClick` a keyboard cannot reach; a `role="presentation"` backdrop in a file that never handles Escape; a fetched list `.map()`ped with no empty case. The mechanical half of `policy/ux-definition-of-done.md` — the rest of that checklist is a reading |
 
 | `ruff_complexity_diff_filter.py` | C901 complexity, but only where a touched function's complexity **grew** |
 | `pylint_diff_filter.py` | `too-many-statements`, same don't-make-it-worse policy |
@@ -122,6 +123,7 @@ Per-line, on the offending line, and each names the rule it waives:
 - `// ts-org: allow-instanceof`
 - `// silent-ok: <reason>` — in a comment, with a reason of at least 12
   characters. The marker alone, or a shrug of a reason, is itself a finding.
+- `{/* ux-ok: <reason> */}` — the same contract, from the same module.
 
 Two rule changes were made during extraction, both because the gates failed on
 their own source. Worth being precise about why that had not happened before:
@@ -326,6 +328,40 @@ source's behaviour:
 `--all` (grade every file regardless of the diff) was not carried over; no
 other gate here has it, and `--scope worktree` on an untracked tree does the
 same job.
+
+## The four UX states a review cannot see
+
+`ts_ux_states_check` is the mechanical half of
+`policy/ux-definition-of-done.md`; the rest of that checklist is a reading, and
+the gate says so under every failure. Four shapes, diff-scoped, on `.ts`/`.tsx`:
+
+| shape | why a review misses it |
+|---|---|
+| `<button>`/`<a>` whose only children are icons, with no text, `aria-label` or `title` | the reviewer already knows what the icon means; a screen reader says "button" |
+| `onClick` on a non-interactive element without `role`, `tabIndex` and a key handler | a mouse reaches it, a keyboard does not |
+| a `role="presentation"` backdrop with `onClick`, in a file that never handles Escape | the mouse can dismiss it and a keyboard inside the focus trap cannot |
+| a `.map()` over fetched rows in a file with no empty-case branch | zero rows and a failed load are the same blank pane |
+
+Most of the value is in what it does *not* report, and that reasoning came
+across unchanged: `label` and `option` are clicked through the control they
+belong to; a `role="presentation"` backdrop owes Escape rather than `tabIndex`;
+a `role="dialog"` panel carrying `stopPropagation` is structure, not a
+control; a component may render a button inside, and the gate cannot see in;
+a `{expr}` child may be a label, and a gate that cannot tell does not accuse;
+options in a `<select>` are a disabled picker, not a blank pane.
+
+It shares `ts_gate_harness.cjs` and `ts_waivers.cjs` with the silent-failure
+gate. Defects fixed in extraction, each with a test that fails against the
+source:
+
+* **`<button><img alt="Delete row" /></button>` was reported as unnamed.**
+  Accessible-name computation takes a child's `alt`, `aria-label` or `title` as
+  the text it contributes. `alt=""` is the explicit "decorative" and still
+  fails.
+* **A short waiver was reported once per touched line beneath it** — three
+  identical findings for one `// ux-ok: meh` over a three-line span.
+* **JSX for every file**, and a skipped unparseable file, as in the
+  silent-failure gate above.
 
 ## CSS
 
