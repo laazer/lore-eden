@@ -183,6 +183,33 @@ moves an instance from `starting` to `ready`. Each launch gets its own process
 group, and stop signals the whole group, so forked workers do not keep the port.
 POSIX only.
 
+A project can also declare its templates as data, so nobody has to write
+Python to launch it. A host reads the file and builds a `SpecTemplate` for each
+entry:
+
+```yaml
+version: 1
+templates:
+  - name: api
+    kind: server
+    cwd: server                 # relative to the chosen worktree
+    command: ["uvicorn", "shop.main:app", "--port", "{port}"]
+    health_path: /health
+  - name: web
+    kind: client
+    cwd: web
+    command: ["npm", "run", "dev", "--", "--port", "{port}", "--strictPort"]
+    target: {env: API_URL}      # pick a server at launch; its URL goes here
+```
+
+Every spec template launches from a worktree of the project. The worktree is
+picked at launch from `git worktree list`, never typed in. A `cwd` that
+escapes the worktree, through `..` or through a symlink, is refused. A
+template with a `target` offers the project's live servers and its main, and
+passes the chosen one's URL in the named variable. `load_template_file`
+reports a bad file with the field that is wrong. It never skips the file
+silently. `validate_spec` checks a stored row the same way.
+
 Agents get the same operations as MCP tools, over the same manager, so an agent
 and a person at the UI act on the same instances:
 

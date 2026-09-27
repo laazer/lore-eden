@@ -45,7 +45,7 @@ from lore_eden.instances.registry import (
     FileInstanceRegistry,
     slugify,
 )
-from lore_eden.instances.templates import LaunchContext, LaunchRequest, LaunchSpec, TemplateCatalog
+from lore_eden.instances.templates import LaunchContext, LaunchRequest, LaunchSpec, TemplateSource
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def probe(record: InstanceRecord, *, timeout: float) -> InstanceHealth:
 class InstanceManager:
     """Everything a host needs to run instances from its templates."""
 
-    def __init__(self, registry: FileInstanceRegistry, templates: TemplateCatalog) -> None:
+    def __init__(self, registry: FileInstanceRegistry, templates: TemplateSource) -> None:
         self.registry = registry
         self.templates = templates
         #: Children this process started. Polling them is what reaps a child
