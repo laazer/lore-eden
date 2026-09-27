@@ -125,6 +125,15 @@ Per-line, on the offending line, and each names the rule it waives:
   characters. The marker alone, or a shrug of a reason, is itself a finding.
 - `{/* ux-ok: <reason> */}` — the same contract, from the same module.
 
+The TypeScript waivers are not strictly per-line: a `silent-ok:`/`ux-ok:`
+marker waives **one construct** the gate grades (a `catch`, a `.catch(...)`
+call, a `<button>`, …) — the innermost of those that contains the comment
+(a catch body, a `.catch` handler, a JSX child), starts on the comment's line,
+or starts on the line directly below the comment block the marker is in. So a
+reason written for an inner, retried probe does not also excuse the `catch`
+around it, and a reason inside a catch body or on the lines above it still
+reaches the catch.
+
 Two rule changes were made during extraction, both because the gates failed on
 their own source. Worth being precise about why that had not happened before:
 the rules are diff-scoped, so in the repo they were written in these lines were
@@ -289,14 +298,20 @@ repo's own `ts/` kit. Four shapes, diff-scoped:
 | `Promise.all`/`allSettled` over raw `fetch`, no `.ok` read in the file | `fetch` resolves on a 500, so "0 failed" is reported when all of them did |
 
 "Records" means assigning outward, a `setX(...)` setter, returning a value, or
-collecting into something read later (`attempts.push(err)`). "Surfaces" is a
+collecting the caught error into something read later (`attempts.push(err)`,
+`failures.set(id, String(err))` — the error, or something built from it, must
+be an argument; `seen.add("x")` records nothing about the failure). "Surfaces" is a
 call to one of loregarden's names for it — `pushToast`, `captureException` and
 kin — because that is where the gate was written; a repo with other names
 passes by recording, rethrowing or waiving.
 
-A waiver is `silent-ok:` in a **comment**, on the span or in the comment block
-directly above it, with a reason of at least 12 characters. A marker inside a
-string is not a waiver.
+`.catch((e) => void report(e))` is a report, not a discard: `void` of an
+expression counts as discarding only when it neither calls anything nor reads
+the rejection (`void 0`, `void null`).
+
+A waiver is `silent-ok:` in a **comment**, belonging to the construct it
+annotates (see [Waivers](#waivers)), with a reason of at least 12 characters. A
+marker inside a string is not a waiver.
 
 Extracted from loregarden, it and the organization gate now share
 `ts_gate_harness.cjs` rather than each carrying a parser loader and a diff
@@ -325,6 +340,16 @@ source's behaviour:
   parser resolution chain — `catch (err) { attempts.push(...) }`, all thrown
   together at the end — failed the gate the first time it graded this package.
 
+Fixed in review, each with a test:
+
+* **Any `.push`/`.add`/`.set` counted as recording the failure**, so
+  `catch { seen.add("x"); }` and `url.searchParams.set(...)` passed. The call
+  must now carry the caught error.
+* **Every `void <expr>` handler was a discard**, so
+  `.catch((e) => void report(e))` failed.
+* **A waiver anywhere in a span waived it**, so a marker on a nested catch hid
+  the catch around it. A waiver now belongs to one construct (above).
+
 `--all` (grade every file regardless of the diff) was not carried over; no
 other gate here has it, and `--scope worktree` on an untracked tree does the
 same job.
@@ -347,7 +372,10 @@ across unchanged: `label` and `option` are clicked through the control they
 belong to; a `role="presentation"` backdrop owes Escape rather than `tabIndex`;
 a `role="dialog"` panel carrying `stopPropagation` is structure, not a
 control; a component may render a button inside, and the gate cannot see in;
-a `{expr}` child may be a label, and a gate that cannot tell does not accuse;
+a `{expr}` child may be a label, and a gate that cannot tell does not accuse —
+nor does a component child (`<FormattedMessage id="save" />`) unless it is
+recognisably an icon: named `…Icon`, `Icon…` or `Icons.…`, or imported from an
+icon package (`lucide-react`, `react-icons/*`, `@heroicons/*`, …);
 options in a `<select>` are a disabled picker, not a blank pane.
 
 It shares `ts_gate_harness.cjs` and `ts_waivers.cjs` with the silent-failure
@@ -362,6 +390,10 @@ source:
   identical findings for one `// ux-ok: meh` over a three-line span.
 * **JSX for every file**, and a skipped unparseable file, as in the
   silent-failure gate above.
+
+Fixed in review, each with a test: a childless component child was read as
+"no text", so `<button><FormattedMessage id="save" /></button>` failed; and a
+`ux-ok:` on a nested element waived the control around it.
 
 ## CSS
 

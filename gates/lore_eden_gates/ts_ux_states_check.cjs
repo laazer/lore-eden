@@ -32,7 +32,8 @@
  *     <div onClick={close} /> {/* ux-ok: backdrop; Esc closes and the dialog traps focus *\/}
  *
  * The marker alone is not enough — the reason must be substantive, the same
- * contract `silent-ok:` carries, from the same module (ts_waivers.cjs).
+ * contract `silent-ok:` carries, from the same module (ts_waivers.cjs), and it
+ * waives the one construct it annotates, not the control around it.
  *
  * Extracted from loregarden's `.lefthook/scripts/`. Parser resolution, scope
  * and file reading come from ts_gate_harness.cjs. Where this differs from the
@@ -201,13 +202,47 @@ function childNames(opening) {
   return unknown ? null : false;
 }
 
+// Where a component is only a glyph. A component the gate cannot see inside —
+// `<FormattedMessage id="save" />`, `<Trans>`, `<Label />` — may render the
+// control's text, so only one that is recognisably an icon is known to render
+// none: by its name (`TrashIcon`, `IconTrash`, `Icon`), or by being imported
+// from a package that ships icons.
+const ICON_NAME = /(?:^Icons?(?:[A-Z0-9]|$)|Icon$)/;
+const ICON_PACKAGE = new RegExp(
+  "^(?:lucide-react|react-feather|react-icons(?:/.*)?|@heroicons/.+|@radix-ui/react-icons|" +
+    "@mui/icons-material(?:/.*)?|@material-ui/icons(?:/.*)?|@tabler/icons-react|" +
+    "@phosphor-icons/react|phosphor-react|@fortawesome/.+|@ant-design/icons|" +
+    "@primer/octicons-react|@carbon/icons-react|@iconify/react|react-bootstrap-icons)$",
+);
+
+/** Local names imported from an icon package: `import { Trash } from "lucide-react"`. */
+function iconImports(ast) {
+  const names = new Set();
+  for (const statement of ast.body || []) {
+    if (statement.type !== "ImportDeclaration") continue;
+    if (!ICON_PACKAGE.test(String(statement.source.value))) continue;
+    for (const specifier of statement.specifiers || []) names.add(specifier.local.name);
+  }
+  return names;
+}
+
+/** Whether a component tag is an icon: `TrashIcon`, `Icons.Trash`, an icon import. */
+function isIconComponent(name, icons) {
+  const root = name.split(".")[0];
+  const last = name.split(".").pop();
+  return ICON_NAME.test(last) || ICON_NAME.test(root) || icons.has(root);
+}
+
 /**
  * Whether the element carries its own visible or announced text.
  *
  * A `{expr}` child returns null, not false: the expression may well be a label,
- * and a gate that cannot tell must not accuse.
+ * and a gate that cannot tell must not accuse. A component child is the same
+ * unknown unless it is an icon (`isIconComponent`): the source read every
+ * childless component as "no text", so `<button><FormattedMessage id="save" />
+ * </button>` — a translated label — was reported as an unnamed control.
  */
-function hasOwnText(element) {
+function hasOwnText(element, icons) {
   let sawExpression = false;
   let sawText = false;
   for (const child of element.children || []) {
@@ -215,27 +250,54 @@ function hasOwnText(element) {
     else if (child.type === "JSXExpressionContainer") sawExpression = true;
     else if (child.type === "JSXElement" || child.type === "JSXFragment") {
       const named = child.type === "JSXElement" ? childNames(child.openingElement) : false;
-      const nested = named === true ? true : hasOwnText(child);
+      const nested = named === true ? true : hasOwnText(child, icons);
+      const tag = child.type === "JSXElement" ? elementName(child.openingElement) : "";
+      const opaque = tag !== "" && !isIntrinsic(tag) && !isIconComponent(tag, icons);
       if (nested === true) sawText = true;
-      else if (nested === null || named === null) sawExpression = true;
+      else if (nested === null || named === null || opaque) sawExpression = true;
     }
   }
   if (sawText) return true;
   return sawExpression ? null : false;
 }
 
+/** `<button>` / `<a>` — the controls check 1 asks for a name. */
+function isNameableControl(node) {
+  if (node.type !== "JSXElement") return false;
+  const name = elementName(node.openingElement);
+  return name === "button" || name === "a";
+}
+
+/** An intrinsic, not natively interactive element with its own onClick — check 2. */
+function isClickableNonControl(node) {
+  if (node.type !== "JSXOpeningElement") return false;
+  const name = elementName(node);
+  if (!isIntrinsic(name) || NATIVELY_INTERACTIVE.has(name)) return false;
+  const { names, hasSpread } = attributeNames(node);
+  return names.has("onClick") && !hasSpread;
+}
+
+/** `role="presentation"` (or "none") with an onClick — the backdrop check 3 grades. */
+function isClickBackdrop(node) {
+  return (
+    node.type === "JSXOpeningElement" &&
+    PRESENTATIONAL_ROLES.has(attributeValue(node, "role")) &&
+    attributeNames(node).names.has("onClick")
+  );
+}
+
 /** 1. A control with no name at all — not spoken, not hoverable, not guessable. */
 function unnamedControlErrors(filePath, ast, added, waivers) {
+  const icons = iconImports(ast);
   const found = [];
   walk(ast, (node) => {
-    if (node.type !== "JSXElement") return true;
+    if (!isNameableControl(node)) return true;
     const name = elementName(node.openingElement);
-    if (name !== "button" && name !== "a") return true;
 
     const start = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, start, end)) return true;
-    if (waivers.waived(start, end)) return true;
+    if (waivers.waived(node)) return true;
 
     const { names, hasSpread } = attributeNames(node.openingElement);
     // Props may arrive wholesale, and dangerouslySetInnerHTML has children we
@@ -243,7 +305,7 @@ function unnamedControlErrors(filePath, ast, added, waivers) {
     if (hasSpread || names.has("dangerouslySetInnerHTML")) return true;
     if ([...NAMING_ATTRS].some((attr) => names.has(attr))) return true;
 
-    const text = hasOwnText(node);
+    const text = hasOwnText(node, icons);
     if (text === true || text === null) return true;
 
     found.push(
@@ -260,17 +322,14 @@ function unnamedControlErrors(filePath, ast, added, waivers) {
 function keyboardUnreachableErrors(filePath, ast, added, waivers) {
   const found = [];
   walk(ast, (node) => {
-    if (node.type !== "JSXOpeningElement") return true;
+    if (!isClickableNonControl(node)) return true;
     const name = elementName(node);
-    if (!isIntrinsic(name) || NATIVELY_INTERACTIVE.has(name)) return true;
-
-    const { names, hasSpread } = attributeNames(node);
-    if (!names.has("onClick") || hasSpread) return true;
+    const { names } = attributeNames(node);
 
     const start = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, start, end)) return true;
-    if (waivers.waived(start, end)) return true;
+    if (waivers.waived(node)) return true;
 
     const role = attributeValue(node, "role");
     // A backdrop is presentational by design; its obligation is Escape, below.
@@ -308,14 +367,12 @@ function backdropWithoutEscapeErrors(filePath, ast, added, waivers, content) {
 
   const found = [];
   walk(ast, (node) => {
-    if (node.type !== "JSXOpeningElement") return true;
-    if (!PRESENTATIONAL_ROLES.has(attributeValue(node, "role"))) return true;
-    if (!attributeNames(node).names.has("onClick")) return true;
+    if (!isClickBackdrop(node)) return true;
 
     const start = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, start, end)) return true;
-    if (waivers.waived(start, end)) return true;
+    if (waivers.waived(node)) return true;
 
     found.push(
       `${filePath}:${start}: this backdrop closes on click, but nothing in this file ` +
@@ -370,6 +427,40 @@ function rendersRows(callback) {
   return rendersJsx && !rendersOptions;
 }
 
+/** A `.map()` whose callback renders rows — the call check 4 grades. */
+function isRenderingMap(node) {
+  if (node.type !== "CallExpression") return false;
+  const callee = node.callee;
+  if (!callee || callee.type !== "MemberExpression") return false;
+  if (!callee.property || callee.property.name !== "map") return false;
+  // Only a map that renders. A map producing values is not an empty state.
+  const callback = node.arguments[0];
+  if (
+    !callback ||
+    (callback.type !== "ArrowFunctionExpression" && callback.type !== "FunctionExpression")
+  ) {
+    return false;
+  }
+  return rendersRows(callback);
+}
+
+/** Every construct this gate grades — what a `ux-ok:` waiver can belong to. */
+function gradedConstructs(ast) {
+  const found = [];
+  walk(ast, (node) => {
+    if (
+      isNameableControl(node) ||
+      isClickableNonControl(node) ||
+      isClickBackdrop(node) ||
+      isRenderingMap(node)
+    ) {
+      found.push(node);
+    }
+    return true;
+  });
+  return found;
+}
+
 /** 4. A fetched list whose empty case nothing renders. */
 function missingEmptyStateErrors(filePath, ast, added, waivers, content) {
   if (!ASYNC_SOURCE_PATTERNS.some((re) => re.test(content))) return [];
@@ -379,20 +470,8 @@ function missingEmptyStateErrors(filePath, ast, added, waivers, content) {
   const found = [];
   const reported = new Set();
   walk(ast, (node) => {
-    if (node.type !== "CallExpression") return true;
+    if (!isRenderingMap(node)) return true;
     const callee = node.callee;
-    if (!callee || callee.type !== "MemberExpression") return true;
-    if (!callee.property || callee.property.name !== "map") return true;
-
-    // Only a map that renders. A map producing values is not an empty state.
-    const callback = node.arguments[0];
-    if (
-      !callback ||
-      (callback.type !== "ArrowFunctionExpression" && callback.type !== "FunctionExpression")
-    ) {
-      return true;
-    }
-    if (!rendersRows(callback)) return true;
 
     const base = mappedBaseName(callee);
     // A literal array in this file, or an imported SCREAMING_SNAKE constant:
@@ -402,7 +481,7 @@ function missingEmptyStateErrors(filePath, ast, added, waivers, content) {
     const start = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, start, end)) return true;
-    if (waivers.waived(start, end)) return true;
+    if (waivers.waived(node)) return true;
     if (reported.has(start)) return true;
     reported.add(start);
 
@@ -431,7 +510,7 @@ runGate({
       const ast = parseGradedFile(filePath, content);
       const lines = content.split("\n");
       const { added } = touched(filePath, lines.length);
-      const waivers = waiverContract(ALLOW_MARKER, lines, ast.comments);
+      const waivers = waiverContract(ALLOW_MARKER, lines, ast.comments, gradedConstructs(ast));
       errors.push(...unnamedControlErrors(filePath, ast, added, waivers));
       errors.push(...keyboardUnreachableErrors(filePath, ast, added, waivers));
       errors.push(...backdropWithoutEscapeErrors(filePath, ast, added, waivers, content));

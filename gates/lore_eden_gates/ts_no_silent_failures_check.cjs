@@ -15,12 +15,14 @@
  *   4. Promise.all/allSettled over raw fetch with no `.ok` check in the file:
  *      a 500 resolves, so "0 failed" is reported when everything failed
  *
- * A suppression that is genuinely fine says so on the line, in a comment, with
- * a reason:
+ * A suppression that is genuinely fine says so, in a comment, with a reason:
  *
  *     } catch { /* silent-ok: probe only; the poll re-checks in 2s *\/ }
  *
- * The marker alone is not enough — the reason must be substantive.
+ * The marker alone is not enough — the reason must be substantive. It waives
+ * one construct: the innermost catch, `.catch(...)` or `Promise.all` that
+ * contains the comment, starts on its line, or starts directly below it
+ * (ts_waivers.cjs).
  *
  * Extracted from loregarden's `.lefthook/scripts/`. Parser resolution, scope
  * and file reading come from ts_gate_harness.cjs; the waiver contract from
@@ -78,14 +80,74 @@ function isConsoleCall(node) {
 /** Methods that put a value into a collection someone reads later. */
 const COLLECTING_METHODS = new Set(["push", "unshift", "add", "set"]);
 
-function isCollectingCall(node) {
+/** The names a catch parameter or a handler's parameters bind: `err`, `{ message }`. */
+function boundNames(params) {
+  const names = new Set();
+  for (const param of params) {
+    walk(param, (node) => {
+      // `(err: ApiError)`: the annotation names a type, not a binding.
+      if (node.type.startsWith("TS")) return false;
+      if (node.type === "Identifier") names.add(node.name);
+      // `{ message = fallback }`: the default is read, not bound.
+      if (node.type === "AssignmentPattern") {
+        walk(node.left, (inner) => {
+          if (inner.type === "Identifier") names.add(inner.name);
+          return true;
+        });
+        return false;
+      }
+      // `{ message: text }` binds `text`; the key is not a binding.
+      if (node.type === "Property" && !node.computed) {
+        walk(node.value, (inner) => {
+          if (inner.type === "Identifier") names.add(inner.name);
+          return true;
+        });
+        return false;
+      }
+      return true;
+    });
+  }
+  return names;
+}
+
+/** Whether `node` reads any of `names` — `err`, `String(err)`, `` `${err.message}` ``. */
+function references(node, names) {
+  if (names.size === 0) return false;
+  let found = false;
+  walk(node, (inner) => {
+    if (found) return false;
+    if (inner.type === "Identifier" && names.has(inner.name)) found = true;
+    // `x.err` names a property, not the binding; only the object is a read.
+    if (inner.type === "MemberExpression" && !inner.computed) {
+      if (references(inner.object, names)) found = true;
+      return false;
+    }
+    // `{ err: 1 }` names a key; only the value is a read.
+    if (inner.type === "Property" && !inner.computed && !inner.shorthand) {
+      if (references(inner.value, names)) found = true;
+      return false;
+    }
+    return !found;
+  });
+  return found;
+}
+
+/**
+ * `attempts.push(err)`, `failures.set(id, String(err))` — the caught error put
+ * where someone reads it later. The method name alone was read as that, so
+ * `seen.add("x")`, `cache.set(key, [])` and `url.searchParams.set(...)` —
+ * a catch recording that *something* happened, or nothing about it at all —
+ * passed as recording the failure. The error has to be in the arguments.
+ */
+function isCollectingCall(node, errorNames) {
   const callee = node.callee;
   return (
     callee &&
     callee.type === "MemberExpression" &&
     !callee.computed &&
     callee.property &&
-    COLLECTING_METHODS.has(callee.property.name)
+    COLLECTING_METHODS.has(callee.property.name) &&
+    node.arguments.some((arg) => references(arg, errorNames))
   );
 }
 
@@ -100,6 +162,7 @@ function observeCatch(handler) {
   };
   let nonConsoleCalls = 0;
   let consoleCalls = 0;
+  const errorNames = boundNames(handler.param ? [handler.param] : []);
 
   walk(handler.body, (node) => {
     if (node.type === "ThrowStatement") seen.rethrows = true;
@@ -118,11 +181,11 @@ function observeCatch(handler) {
       // A setter is how a component records a failure it will render:
       // setError(...), setBootError(...), setSaveError(...).
       if (name && /^set[A-Z]/.test(name)) seen.recordsState = true;
-      // Collecting the failure to report it later: `attempts.push(...)`,
-      // `failures.add(...)`. The source read that as "neither rethrows nor
-      // surfaces", which fails the resolution chain in ts_gate_harness.cjs —
+      // Collecting the failure to report it later: `attempts.push(err)`,
+      // `failures.add(String(err))`. The source read that as "neither rethrows
+      // nor surfaces", which fails the resolution chain in ts_gate_harness.cjs —
       // each attempt's error is pushed, and all of them are thrown together.
-      if (isCollectingCall(node)) seen.recordsState = true;
+      if (isCollectingCall(node, errorNames)) seen.recordsState = true;
     } else if (node.type === "AssignmentExpression") {
       // Assigning outward is recording. Declaring a local is not: the source
       // counted every `VariableDeclarator`, so
@@ -148,7 +211,7 @@ function catchErrors(filePath, ast, added, waivers) {
     const start = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, start, end)) return true;
-    if (waivers.waived(start, end)) return true;
+    if (waivers.waived(node)) return true;
 
     const seen = observeCatch(node);
     if (seen.rethrows || seen.surfaces || seen.recordsState) return true;
@@ -176,6 +239,29 @@ function catchErrors(filePath, ast, added, waivers) {
   return found;
 }
 
+/**
+ * `void <expr>` as a handler body throws the rejection away only when the
+ * expression does nothing with it: `void 0`, `void null`, `void someFlag`.
+ * `(e) => void report(e)` is `void` used to keep an arrow's return value out
+ * of the promise chain, and the call inside it is the report. The source read
+ * every `void` as a discard.
+ */
+function isDiscardingVoid(argument, handlerNames) {
+  if (references(argument, handlerNames)) return false;
+  let calls = false;
+  walk(argument, (inner) => {
+    if (
+      inner.type === "CallExpression" ||
+      inner.type === "NewExpression" ||
+      inner.type === "TaggedTemplateExpression"
+    ) {
+      calls = true;
+    }
+    return !calls;
+  });
+  return !calls;
+}
+
 /** `() => {}`, `() => undefined`, `() => null`, `() => void 0` — one discard, four spellings. */
 function isDiscardingHandler(arg) {
   const isFn = arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression";
@@ -185,21 +271,52 @@ function isDiscardingHandler(arg) {
   return (
     (body.type === "Identifier" && body.name === "undefined") ||
     (body.type === "Literal" && (body.value === null || body.value === false)) ||
-    (body.type === "UnaryExpression" && body.operator === "void")
+    (body.type === "UnaryExpression" &&
+      body.operator === "void" &&
+      isDiscardingVoid(body.argument, boundNames(arg.params)))
   );
+}
+
+/** `p.catch(handler)` — the call a discarded rejection is written as. */
+function isCatchCall(node) {
+  return node.type === "CallExpression" && calleeName(node) === "catch" && node.arguments.length === 1;
+}
+
+/** `Promise.all(...)` / `Promise.allSettled(...)`. */
+function isPromiseCombinator(node) {
+  if (node.type !== "CallExpression") return false;
+  const name = calleeName(node);
+  const callee = node.callee;
+  return (
+    (name === "allSettled" || name === "all") &&
+    callee.type === "MemberExpression" &&
+    Boolean(callee.object) &&
+    callee.object.name === "Promise"
+  );
+}
+
+/** Every construct this gate grades — what a `silent-ok:` waiver can belong to. */
+function gradedConstructs(ast) {
+  const found = [];
+  walk(ast, (node) => {
+    if (node.type === "CatchClause" || isCatchCall(node) || isPromiseCombinator(node)) {
+      found.push(node);
+    }
+    return true;
+  });
+  return found;
 }
 
 /** `.catch(() => {})` and `.catch(console.error)` — a rejection thrown away. */
 function discardedRejectionErrors(filePath, ast, added, waivers) {
   const found = [];
   walk(ast, (node) => {
-    if (node.type !== "CallExpression") return true;
-    if (calleeName(node) !== "catch" || node.arguments.length !== 1) return true;
+    if (!isCatchCall(node)) return true;
     const arg = node.arguments[0];
     const line = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, line, end)) return true;
-    if (waivers.waived(line, end)) return true;
+    if (waivers.waived(node)) return true;
 
     const isConsoleRef =
       arg.type === "MemberExpression" &&
@@ -253,22 +370,12 @@ function settledFetchErrors(filePath, ast, added, waivers) {
   if (readsOk(ast)) return [];
   const found = [];
   walk(ast, (node) => {
-    if (node.type !== "CallExpression") return true;
+    if (!isPromiseCombinator(node)) return true;
     const name = calleeName(node);
-    if (name !== "allSettled" && name !== "all") return true;
-    const callee = node.callee;
-    if (
-      !callee ||
-      callee.type !== "MemberExpression" ||
-      !callee.object ||
-      callee.object.name !== "Promise"
-    ) {
-      return true;
-    }
     const start = node.loc.start.line;
     const end = node.loc.end.line;
     if (!spanTouched(added, start, end)) return true;
-    if (waivers.waived(start, end)) return true;
+    if (waivers.waived(node)) return true;
 
     let callsFetch = false;
     walk(node, (inner) => {
@@ -298,7 +405,7 @@ runGate({
       const ast = parseGradedFile(filePath, content);
       const lines = content.split("\n");
       const { added } = touched(filePath, lines.length);
-      const waivers = waiverContract(ALLOW_MARKER, lines, ast.comments);
+      const waivers = waiverContract(ALLOW_MARKER, lines, ast.comments, gradedConstructs(ast));
       errors.push(...catchErrors(filePath, ast, added, waivers));
       errors.push(...discardedRejectionErrors(filePath, ast, added, waivers));
       errors.push(...settledFetchErrors(filePath, ast, added, waivers));

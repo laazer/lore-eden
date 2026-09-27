@@ -257,3 +257,45 @@ class TestDefectsFixedInExtraction:
         result = run_gate(repo)
         assert_fails(result, "'ux-ok:' with no substantive reason")
         assert "could not parse" not in output(result)
+
+
+class TestDefectsFixedInReview:
+    """Each fails against the gate as first extracted (PR #59 review)."""
+
+    def test_a_component_child_may_be_the_label(self, repo):
+        # A childless component was read as "no text", so a translated label
+        # was reported as an unnamed control.
+        source = component(
+            '<button onClick={close}><FormattedMessage id="save" /></button>',
+            preamble='import { FormattedMessage } from "react-intl";\n',
+        )
+        ts_repo(repo, "src/Row.tsx", source)
+        assert_passes(run_gate(repo))
+
+    @pytest.mark.parametrize(
+        ("preamble", "jsx"),
+        [
+            ('import { Trash } from "lucide-react";\n', "<Trash />"),
+            ('import { FaTrash } from "react-icons/fa";\n', "<FaTrash />"),
+            ("", "<IconTrash />"),
+            ("", "<Icons.Trash />"),
+        ],
+    )
+    def test_an_icon_component_still_names_nothing(self, repo, preamble, jsx):
+        source = component(f"<button onClick={{close}}>{jsx}</button>", preamble=preamble)
+        ts_repo(repo, "src/Row.tsx", source)
+        assert_fails(run_gate(repo), "<button> has no text and no aria-label/title")
+
+    def test_a_waiver_on_a_nested_element_does_not_waive_the_control(self, repo):
+        # A marker anywhere in the button's span waived it, so the reason
+        # written for the inner element excused the unnamed button too.
+        jsx = (
+            "<button onClick={close}>\n"
+            "      <span onClick={close /* ux-ok: the button handles the key path */} />\n"
+            "      <TrashIcon />\n"
+            "    </button>"
+        )
+        ts_repo(repo, "src/Row.tsx", component(jsx))
+        result = run_gate(repo)
+        assert_fails(result, "<button> has no text and no aria-label/title")
+        assert "<span onClick>" not in output(result)

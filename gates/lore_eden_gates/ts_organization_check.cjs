@@ -126,6 +126,8 @@ function findErrorHelper(repoRoot) {
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
+      // silent-ok: this search only picks which helper the advice names; a
+      // directory it cannot list leaves the advice at "extract one", still true.
       continue;
     }
     for (const entry of entries) {
@@ -137,6 +139,8 @@ function findErrorHelper(repoRoot) {
         try {
           match = pattern.exec(fs.readFileSync(full, "utf8"));
         } catch {
+          // silent-ok: as above — a file it cannot read only means the advice
+          // names no helper; nothing graded is passed or failed by it.
           continue;
         }
         if (match) {
@@ -267,6 +271,8 @@ function buildCatalog(changedSet, repoRoot) {
             catalog.get(fn.key).push({ file: full, name: fn.name, line: fn.line });
           }
         } catch (err) {
+          // silent-ok: this is a command-line gate, so stderr is where its user
+          // reads; the note prints beside the report it qualifies.
           // Background for the DRY catalog, not a file this run grades, so it
           // cannot make the run report a violation clean. It can still weaken a
           // DRY match, so it is reported rather than dropped.

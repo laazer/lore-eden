@@ -275,3 +275,129 @@ class TestDefectsFixedInExtraction:
         )
         ts_repo(repo, "src/load.ts", source)
         assert_passes(run_gate(repo))
+
+
+class TestDefectsFixedInReview:
+    """Each fails against the gate as first extracted (PR #59 review)."""
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            'seen.add("x");',
+            "cache.set(key, []);",
+            'url.searchParams.set("retry", "1");',
+            "attempts.push(key);",
+        ],
+    )
+    def test_collecting_something_other_than_the_error_is_not_recording_it(self, repo, body):
+        # A collection method was read as recording the failure whatever went
+        # into it; only the caught error, or something built from it, is.
+        source = (
+            "export function f(seen: Set<string>, cache: Map<string, string[]>, url: URL,\n"
+            "  attempts: string[], key: string) {\n"
+            f"  try {{ g(); }} catch (err) {{ {body} }}\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_fails(run_gate(repo), "catch neither rethrows nor surfaces")
+
+    @pytest.mark.parametrize(
+        "body",
+        ["attempts.push(err);", "failures.set(id, err.message);", "attempts.push(`${err}`);"],
+    )
+    def test_collecting_the_caught_error_is_recording_it(self, repo, body):
+        source = (
+            "export function f(attempts: unknown[], failures: Map<string, string>, id: string) {\n"
+            f"  try {{ g(); }} catch (err) {{ {body} }}\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_passes(run_gate(repo))
+
+    def test_void_around_a_report_is_not_a_discard(self, repo):
+        # `void` keeps the arrow's return value out of the chain; the call is
+        # the report.
+        source = (
+            "export function f(p: Promise<void>, report: (e: unknown) => void) {\n"
+            "  p.catch((e) => void report(e));\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_passes(run_gate(repo))
+
+    @pytest.mark.parametrize("handler", ["() => void 0", "(e) => void null", "() => void flag"])
+    def test_void_of_nothing_is_still_a_discard(self, repo, handler):
+        source = (
+            "const flag = true;\n"
+            "export function f(p: Promise<void>) {\n"
+            f"  p.catch({handler});\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_fails(run_gate(repo), "the .catch handler discards the rejection")
+
+    def test_an_inner_waiver_does_not_waive_the_catch_around_it(self, repo):
+        # The marker anywhere in the outer span waived it: the reason written
+        # for the retried inner probe excused the outer catch nothing retries.
+        source = (
+            "export function f() {\n"
+            "  try {\n"
+            "    run();\n"
+            "  } catch {\n"
+            "    try { run(); } catch { /* silent-ok: inner probe is retried every 2 seconds */ }\n"
+            "  }\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        result = run_gate(repo)
+        assert_fails(result, "src/load.ts:4: catch neither rethrows nor surfaces")
+        assert "src/load.ts:5:" not in output(result)
+
+    def test_an_inner_waiver_on_the_outer_line_does_not_waive_it(self, repo):
+        source = (
+            "export function f() {\n"
+            "  try { run(); } catch { try { run(); } catch "
+            "{ /* silent-ok: inner probe is retried every 2 seconds */ } }\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_fails(run_gate(repo), "catch neither rethrows nor surfaces")
+
+    def test_a_multi_line_waiver_inside_the_catch_body_is_honoured(self, repo):
+        source = (
+            "export function f() {\n"
+            "  try {\n"
+            "    run();\n"
+            "  } catch {\n"
+            "    // silent-ok: the poll that owns this probe\n"
+            "    // re-checks the endpoint every two seconds\n"
+            "  }\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_passes(run_gate(repo))
+
+    def test_a_waiver_inside_the_handler_waives_the_catch_call(self, repo):
+        source = (
+            "export function f() {\n"
+            "  void load().catch(() => {\n"
+            "    /* silent-ok: best-effort prefetch; the page loads it again on open */\n"
+            "  });\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        assert_passes(run_gate(repo))
+
+    def test_a_waiver_above_an_inner_catch_call_is_that_calls(self, repo):
+        source = (
+            "export function f() {\n"
+            "  try { run(); } catch {\n"
+            "    // silent-ok: best-effort prefetch; the page loads it again on open\n"
+            "    void load().catch(() => {});\n"
+            "  }\n"
+            "}\n"
+        )
+        ts_repo(repo, "src/load.ts", source)
+        result = run_gate(repo)
+        assert_fails(result, "src/load.ts:2: catch neither rethrows nor surfaces")
+        assert "discards the rejection" not in output(result)
