@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import os
 import socket
-import sys
-from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -43,39 +41,15 @@ from lore_eden.instances import __main__ as cli
 from lore_eden.instances import manager as manager_module
 from lore_eden.instances.registry import derive_state
 
-FAKE_SERVER = Path(__file__).resolve().parent / "fake_instance_server.py"
+
+@pytest.fixture
+def registry(instance_registry: FileInstanceRegistry) -> FileInstanceRegistry:
+    return instance_registry
 
 
 @pytest.fixture
-def registry(tmp_path: Path) -> FileInstanceRegistry:
-    return FileInstanceRegistry(tmp_path / "registry")
-
-
-@pytest.fixture
-def manager(registry: FileInstanceRegistry, tmp_path: Path) -> Iterator[InstanceManager]:
-    catalog = TemplateCatalog()
-    catalog.register(
-        CommandTemplate(
-            project="demo",
-            name="api",
-            kind=InstanceKind.SERVER,
-            command=[sys.executable, str(FAKE_SERVER), "{param:mode}"],
-            cwd=str(tmp_path),
-            params=[
-                TemplateParam(
-                    key="mode",
-                    label="Mode",
-                    default="--ok",
-                    choices=["--ok", "--exit=3", "--never-ready", "--ignore-term"],
-                )
-            ],
-            ready_timeout_seconds=15,
-        )
-    )
-    built = InstanceManager(registry, catalog)
-    yield built
-    for view in built.list().instances:
-        built.stop(view.id)
+def manager(instance_manager: InstanceManager) -> InstanceManager:
+    return instance_manager
 
 
 def launch(manager: InstanceManager, mode: str = "--ok"):

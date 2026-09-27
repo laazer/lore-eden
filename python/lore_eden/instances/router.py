@@ -21,59 +21,23 @@ does not block the event loop.
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Annotated, TypeVar
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from lore_eden.instances.manager import (
-    InstanceLaunchError,
-    InstanceManager,
-    InstanceNotFoundError,
-    NotManagedError,
-)
+from lore_eden.instances.failures import EXPECTED_FAILURES, classify
+from lore_eden.instances.manager import InstanceManager
 from lore_eden.instances.models import InstanceHealth, InstanceListing, InstanceLogs, InstanceView
-from lore_eden.instances.ports import NoFreePortError
-from lore_eden.instances.templates import (
-    LaunchRequest,
-    TemplateInfo,
-    TemplateParamError,
-    UnknownTemplateError,
-)
-
-_T = TypeVar("_T")
-
-#: Each failure a manager call can raise, and the status it answers with.
-#: One table rather than a try block per endpoint, so every endpoint maps the
-#: same failure to the same status.
-_STATUS_FOR: dict[type[Exception], int] = {
-    InstanceNotFoundError: status.HTTP_404_NOT_FOUND,
-    UnknownTemplateError: status.HTTP_404_NOT_FOUND,
-    TemplateParamError: 422,
-    NotManagedError: status.HTTP_409_CONFLICT,
-    NoFreePortError: status.HTTP_503_SERVICE_UNAVAILABLE,
-    InstanceLaunchError: status.HTTP_500_INTERNAL_SERVER_ERROR,
-}
-#: KeyError's str() is the repr of its key; these say what was missing instead.
-_MISSING_NOUN: dict[type[Exception], str] = {
-    InstanceNotFoundError: "instance",
-    UnknownTemplateError: "template",
-}
-
-
-def _nearest(table: dict[type[Exception], _T], exc: Exception) -> _T | None:
-    """The entry for the closest class in ``exc``'s MRO, so a subclass maps too."""
-    return next((table[k] for k in type(exc).__mro__ if k in table), None)
+from lore_eden.instances.templates import LaunchRequest, TemplateInfo
 
 
 @contextmanager
 def _as_http() -> Iterator[None]:
     try:
         yield
-    except tuple(_STATUS_FOR) as exc:
-        noun = _nearest(_MISSING_NOUN, exc)
-        detail = f"no {noun} {exc.args[0]!r}" if noun else str(exc)
-        code = _nearest(_STATUS_FOR, exc) or status.HTTP_500_INTERNAL_SERVER_ERROR
-        raise HTTPException(code, detail) from exc
+    except EXPECTED_FAILURES as exc:
+        failure, detail = classify(exc)
+        raise HTTPException(failure.status, detail) from exc
 
 
 def make_instances_router(provider: Callable[[], InstanceManager]) -> APIRouter:

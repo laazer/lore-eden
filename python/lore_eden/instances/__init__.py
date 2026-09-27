@@ -24,9 +24,11 @@ managed over HTTP by the router a host mounts:
     app.include_router(make_instances_router(lambda: manager), prefix="/api/instances")
 
 The main instance advertises itself with :func:`register_self` at startup.
-Anything else finds it with ``python -m lore_eden.instances url main``.
+Anything else finds it with ``python -m lore_eden.instances url main``, and
+agents get the same operations as MCP tools through :func:`register_instance_tools`.
 """
 
+from lore_eden.instances.failures import Failure, FailureKind, classify
 from lore_eden.instances.manager import (
     InstanceLaunchError,
     InstanceManager,
@@ -67,12 +69,16 @@ from lore_eden.instances.templates import (
     UnknownTemplateError,
     resolve_params,
 )
+from lore_eden.instances.tools import INSTANCE_TOOL_NAMES, instance_tools, register_instance_tools
 
 __all__ = [
     "ENV_INSTANCE_ID",
     "ENV_REGISTRY_DIR",
     "CommandTemplate",
     "FileInstanceRegistry",
+    "INSTANCE_TOOL_NAMES",
+    "Failure",
+    "FailureKind",
     "InstanceHealth",
     "InstanceKind",
     "InstanceLaunchError",
@@ -98,9 +104,12 @@ __all__ = [
     "UnknownTemplateError",
     "UnreadableRecord",
     "allocate_port",
+    "classify",
+    "instance_tools",
     "make_instances_router",
     "port_is_free",
     "probe",
+    "register_instance_tools",
     "register_self",
     "resolve_params",
 ]

@@ -7,9 +7,19 @@ application's tables, `create_all` would not be able to build it.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
+from lore_eden.instances import (
+    CommandTemplate,
+    FileInstanceRegistry,
+    InstanceKind,
+    InstanceManager,
+    TemplateCatalog,
+    TemplateParam,
+)
 
 # Imported for its side effect: registering the table on SQLModel.metadata.
 from lore_eden.mcp.servers.models import McpServerRecord  # noqa: F401
@@ -30,3 +40,44 @@ def session(tmp_path) -> Iterator[Session]:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as db_session:
         yield db_session
+
+
+FAKE_INSTANCE_SERVER = Path(__file__).resolve().parent / "fake_instance_server.py"
+
+
+@pytest.fixture
+def instance_registry(tmp_path: Path) -> FileInstanceRegistry:
+    return FileInstanceRegistry(tmp_path / "registry")
+
+
+@pytest.fixture
+def instance_manager(instance_registry: FileInstanceRegistry, tmp_path: Path) -> Iterator[InstanceManager]:
+    """A manager with one template, ``api``, launching `fake_instance_server.py`.
+
+    Its ``mode`` parameter picks how the fake behaves. Everything launched is
+    stopped afterwards, so a failing test cannot leave a server holding a port.
+    """
+    catalog = TemplateCatalog()
+    catalog.register(
+        CommandTemplate(
+            project="demo",
+            name="api",
+            kind=InstanceKind.SERVER,
+            command=[sys.executable, str(FAKE_INSTANCE_SERVER), "{param:mode}"],
+            cwd=str(tmp_path),
+            params=[
+                TemplateParam(
+                    key="mode",
+                    label="Mode",
+                    default="--ok",
+                    choices=["--ok", "--exit=3", "--never-ready", "--ignore-term"],
+                )
+            ],
+            ready_timeout_seconds=15,
+        )
+    )
+    built = InstanceManager(instance_registry, catalog)
+    yield built
+    for view in built.list().instances:
+        if view.managed:
+            built.stop(view.id)
