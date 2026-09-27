@@ -102,7 +102,7 @@ export abstract class ReconnectingSocket<THandlers extends SocketStatusHandler> 
       try {
         message = JSON.parse(event.data);
       } catch {
-        // A frame we cannot parse is the server's problem, not a reason to
+        // silent-ok: a frame we cannot parse is the server's problem, not a reason to
         // tear down a working connection.
         return;
       }

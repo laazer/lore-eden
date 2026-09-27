@@ -63,9 +63,11 @@ from precommit_git_diff import (  # noqa: E402
 GATED_SUFFIXES: dict[str, str] = {
     ".py": "py_organization_check, py_silent_except_check, py_git_subprocess_check, "
     "py_defensive_normalization_check",
-    ".ts": "ts_organization_check",
-    ".tsx": "ts_organization_check",
-    ".cjs": "ts_organization_check",
+    ".ts": "ts_organization_check, ts_no_silent_failures_check, "
+    "ts_ux_states_check",
+    ".tsx": "ts_organization_check, ts_no_silent_failures_check, "
+    "ts_ux_states_check",
+    ".cjs": "ts_organization_check, ts_no_silent_failures_check",
     ".css": "css_organization_check",
     ".sh": "sh_shellcheck_check",
     ".json": "data_format_check",

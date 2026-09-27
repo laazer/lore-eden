@@ -106,7 +106,7 @@ else
 fi
 
 printf '\n== ready\n'
-echo "  pre-commit:  the 7 gate commands and the ruff policy"
+echo "  pre-commit:  the managed gate commands, gate coverage and the ruff policy"
 echo "  pre-push:    python tests (narrowed) and the gate suite (whole)"
 echo
 echo "Verify with:  (cd gates && $VENV/bin/python -m pytest -q)"
