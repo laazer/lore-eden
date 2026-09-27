@@ -286,6 +286,15 @@ class TestDefectsFixedInReview:
         ts_repo(repo, "src/Row.tsx", source)
         assert_fails(run_gate(repo), "<button> has no text and no aria-label/title")
 
+    def test_a_comment_child_does_not_name_the_control(self, repo):
+        # `{/* ... */}` renders nothing, but was read as an unknown expression,
+        # so any comment inside an icon-only button let it pass unnamed.
+        source = component(
+            "<button onClick={close}>{/* the trash can */}<TrashIcon /></button>"
+        )
+        ts_repo(repo, "src/Row.tsx", source)
+        assert_fails(run_gate(repo), "<button> has no text and no aria-label/title")
+
     def test_a_waiver_on_a_nested_element_does_not_waive_the_control(self, repo):
         # A marker anywhere in the button's span waived it, so the reason
         # written for the inner element excused the unnamed button too.

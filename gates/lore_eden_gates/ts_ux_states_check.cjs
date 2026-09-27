@@ -247,7 +247,10 @@ function hasOwnText(element, icons) {
   let sawText = false;
   for (const child of element.children || []) {
     if (child.type === "JSXText" && child.value.trim() !== "") sawText = true;
-    else if (child.type === "JSXExpressionContainer") sawExpression = true;
+    else if (child.type === "JSXExpressionContainer") {
+      // `{/* comment */}` renders nothing, so it cannot name the control.
+      if (child.expression.type !== "JSXEmptyExpression") sawExpression = true;
+    }
     else if (child.type === "JSXElement" || child.type === "JSXFragment") {
       const named = child.type === "JSXElement" ? childNames(child.openingElement) : false;
       const nested = named === true ? true : hasOwnText(child, icons);
