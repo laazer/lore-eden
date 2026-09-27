@@ -75,6 +75,7 @@ commit to find out what it will say:
 ```bash
 python3 gates/lore_eden_gates/py_organization_check.py --repo . --scope worktree
 node gates/lore_eden_gates/ts_organization_check.cjs --repo . --scope worktree
+node gates/lore_eden_gates/ts_no_silent_failures_check.cjs --repo . --scope worktree
 ```
 
 A gate your change trips is part of your change, including when the file was
@@ -86,7 +87,7 @@ is how one that has been growing unchecked finally gets split.
 `scripts/bootstrap-worktree.sh` installs them, or `lefthook install` on its own
 if the rest of the checkout is already set up.
 
-**pre-commit** runs the ten gates over your staged files — seconds, except the
+**pre-commit** runs the eleven gates over your staged files — seconds, except the
 Pylint statement filter, which is most of the minute the whole stage takes.
 
 **pre-push** runs the python suite narrowed to the tests your commits can reach,

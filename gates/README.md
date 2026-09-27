@@ -40,6 +40,7 @@ report a file clean.
 | `py_git_subprocess_check.py` | `git`/`gh` subprocess calls routed through an env-scrubbing wrapper (opt-in, see below) |
 | `py_defensive_normalization_check.py` | `str(x).strip().lower()` in a comparison — re-normalizing a value that should be constrained at its source |
 | `ts_organization_check.cjs` | File size caps, no `fetch`/`axios` in `.tsx`, duplicate bodies, cross-codebase DRY, barrel size, inline `instanceof Error` ternaries |
+| `ts_no_silent_failures_check.cjs` | A `catch` that neither rethrows, records nor surfaces; a console-only `catch`; `.catch(() => {})` / `.catch(console.error)`; `Promise.all`/`allSettled` over raw `fetch` with no `.ok` check in the file |
 
 | `ruff_complexity_diff_filter.py` | C901 complexity, but only where a touched function's complexity **grew** |
 | `pylint_diff_filter.py` | `too-many-statements`, same don't-make-it-worse policy |
@@ -54,6 +55,8 @@ Supporting, not installed as hooks:
 | Script | Purpose |
 |---|---|
 | `precommit_git_diff.py` | The shared diff/scope harness every Python gate imports. Scrubs `GIT_DIR`/`GIT_WORK_TREE`, decodes `core.quotePath` escapes, resolves scopes, and refuses to call an unresolved scope a pass |
+| `ts_gate_harness.cjs` | What every TypeScript gate shares: the parser resolution chain, scope (asked of `precommit_git_diff.py`, never re-derived), the guarded file read, argv, and the one exit path for "could not examine" |
+| `ts_waivers.cjs` | The marker-with-a-reason waiver contract the TypeScript gates share |
 | `select_pytest_targets.py` | Import-graph test selection for pre-push, biased hard toward over-running |
 
 ## Scopes
@@ -117,6 +120,8 @@ Per-line, on the offending line, and each names the rule it waives:
 - `# py-silent: allow`
 - `# py-defensive: allow`
 - `// ts-org: allow-instanceof`
+- `// silent-ok: <reason>` — in a comment, with a reason of at least 12
+  characters. The marker alone, or a shrug of a reason, is itself a finding.
 
 Two rule changes were made during extraction, both because the gates failed on
 their own source. Worth being precise about why that had not happened before:
@@ -268,6 +273,60 @@ The trees still differ, and these are the reasons:
 * **Dead constants in loregarden's `.cjs`.** `C_ESCAPES`,
   `GIT_LOCATION_ENV_VARS`, `GIT_CONFIG_ENV_PREFIXES`, `TRUNK_REF_CANDIDATES`,
   `tsFilesInScope` and an orphaned doc block survived their rewrite unreferenced.
+## TypeScript failures that nobody sees
+
+`ts_no_silent_failures_check` is `py_silent_except_check` for TypeScript. Before
+it, a `catch {}` in a `.tsx` file passed every gate here, including in this
+repo's own `ts/` kit. Four shapes, diff-scoped:
+
+| shape | why it is a finding |
+|---|---|
+| a `catch` that neither rethrows, records state, nor surfaces | the user reads "no data" where the truth was "it failed" |
+| a `catch` whose only effect is `console.*` | a line in devtools is not something a user sees |
+| `.catch(() => {})`, `.catch(console.error)` | the rejection is discarded |
+| `Promise.all`/`allSettled` over raw `fetch`, no `.ok` read in the file | `fetch` resolves on a 500, so "0 failed" is reported when all of them did |
+
+"Records" means assigning outward, a `setX(...)` setter, returning a value, or
+collecting into something read later (`attempts.push(err)`). "Surfaces" is a
+call to one of loregarden's names for it — `pushToast`, `captureException` and
+kin — because that is where the gate was written; a repo with other names
+passes by recording, rethrowing or waiving.
+
+A waiver is `silent-ok:` in a **comment**, on the span or in the comment block
+directly above it, with a reason of at least 12 characters. A marker inside a
+string is not a waiver.
+
+Extracted from loregarden, it and the organization gate now share
+`ts_gate_harness.cjs` rather than each carrying a parser loader and a diff
+reader. The source's `ts_git_diff.cjs` was not ported: its scope logic was a
+third copy of `precommit_git_diff.py`'s, and the harness asks that module
+instead. Defects fixed on the way, each with a test that fails against the
+source's behaviour:
+
+* **Every file parsed as JSX.** A generic arrow in a `.ts` file did not parse,
+  and the source skipped unparseable files — so the file, and the empty
+  `catch` in it, passed. Now JSX is by extension, and a file that does not
+  parse is refused.
+* **An unknown scope became `staged`.** `--scope wrokTree` graded an empty index
+  and exited 0. It is refused now.
+* **`console.error(describeError(err))` counted as surfacing**, because the walk
+  descended into the console call's arguments.
+* **A local declared and dropped counted as recording.**
+  `catch (err) { const message = String(err); }` passed.
+* **`.ok` was searched only inside the `Promise.all` call**, though the source's
+  own header said "in the file". The usual correct shape reads `.ok` after the
+  await, and was reported.
+* **A multi-line block-comment waiver above a `.catch` was ignored**: comment
+  lines were found by prefix, and a block's continuation line starts with
+  prose. loregarden's UX gate had fixed this; its silent-failure gate had not.
+* **Collecting a failure to report later did not count.** The harness's own
+  parser resolution chain — `catch (err) { attempts.push(...) }`, all thrown
+  together at the end — failed the gate the first time it graded this package.
+
+`--all` (grade every file regardless of the diff) was not carried over; no
+other gate here has it, and `--scope worktree` on an untracked tree does the
+same job.
+
 ## CSS
 
 `css_organization_check` grades `.css`, which every other gate here ignored. The

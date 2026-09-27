@@ -70,5 +70,7 @@ jobs:
             echo "--- $gate"
             python3 "$gates/$gate" --repo "$repo" --scope "${{ inputs.scope }}" --base "$base"
           done
-          echo "--- ts_organization_check.cjs"
-          node "$gates/ts_organization_check.cjs" --repo "$repo" --scope "${{ inputs.scope }}" --base "$base"
+          for gate in ts_organization_check.cjs ts_no_silent_failures_check.cjs; do
+            echo "--- $gate"
+            node "$gates/$gate" --repo "$repo" --scope "${{ inputs.scope }}" --base "$base"
+          done
