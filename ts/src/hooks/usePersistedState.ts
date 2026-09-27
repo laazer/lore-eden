@@ -49,7 +49,8 @@ function writeStored<T>(key: string, value: T, serialize: (value: T) => string):
   try {
     localStorage.setItem(key, serialize(value));
   } catch {
-    // Quota, private mode, no storage, or a value the serializer rejects.
+    // silent-ok: quota, private mode, no storage, or a value the serializer
+    // rejects; the state keeps working in memory, which is the documented contract.
   }
 }
 
