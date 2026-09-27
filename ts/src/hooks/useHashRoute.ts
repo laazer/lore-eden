@@ -83,6 +83,18 @@ export function parseHash(rawHash: string): HashRoute {
   };
 }
 
+/** A high surrogate not followed by a low one, or a low one not preceded by a high one. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * `encodeURIComponent`, with each lone surrogate written as U+FFFD rather than
+ * throwing a `URIError` — what `String.prototype.toWellFormed` does, which the
+ * ES2022 lib this package targets does not declare.
+ */
+function encodeComponent(value: string): string {
+  return encodeURIComponent(value.replace(LONE_SURROGATE, '\uFFFD'));
+}
+
 /**
  * Serialize a segment and ordered query entries to `#/<segment>?<k=v&...>`.
  * Null and empty values are omitted; entry order is kept, so the same state
@@ -92,11 +104,11 @@ export function buildHash(
   segment: string,
   entries: ReadonlyArray<readonly [string, string | null]> = [],
 ): string {
-  const path = segment.split('/').map(encodeURIComponent).join('/');
+  const path = segment.split('/').map(encodeComponent).join('/');
   const pairs: string[] = [];
   for (const [key, value] of entries) {
     if (value !== null && value !== '') {
-      pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+      pairs.push(`${encodeComponent(key)}=${encodeComponent(value)}`);
     }
   }
   return pairs.length > 0 ? `#/${path}?${pairs.join('&')}` : `#/${path}`;
@@ -116,25 +128,39 @@ function normalizeHash(hash: string): string {
  * `#/a`, pushes nothing and does not re-render.
  */
 export function useHashRoute(): { route: HashRoute; navigate: (hash: string) => void } {
-  const [route, setRoute] = useState<HashRoute>(() => parseHash(window.location.hash));
+  // The raw hash is kept beside its parse so an unchanged hash — the mount-time
+  // sync, or the `hashchange` that follows `navigate` — keeps the same route
+  // object and skips the re-render.
+  const [state, setState] = useState<{ hash: string; route: HashRoute }>(() => {
+    // No `window` under server rendering: the route reads as empty.
+    const hash = typeof window === 'undefined' ? '' : window.location.hash;
+    return { hash, route: parseHash(hash) };
+  });
+
+  const sync = useCallback((): void => {
+    const hash = window.location.hash;
+    setState((prev) => (prev.hash === hash ? prev : { hash, route: parseHash(hash) }));
+  }, []);
 
   useEffect(() => {
-    const sync = (): void => setRoute(parseHash(window.location.hash));
     window.addEventListener('hashchange', sync);
     // The hash may have changed between the initial render and this effect.
     sync();
     return () => window.removeEventListener('hashchange', sync);
-  }, []);
+  }, [sync]);
 
-  const navigate = useCallback((hash: string): void => {
-    const target = normalizeHash(hash);
-    if (target === window.location.hash) return;
-    window.location.hash = target;
-    // `hashchange` is dispatched as a later task; update now so the caller's
-    // next render already shows the route it asked for. Read back from
-    // `location` so local state is what a reload would parse.
-    setRoute(parseHash(window.location.hash));
-  }, []);
+  const navigate = useCallback(
+    (hash: string): void => {
+      const target = normalizeHash(hash);
+      if (target === window.location.hash) return;
+      window.location.hash = target;
+      // `hashchange` is dispatched as a later task; update now so the caller's
+      // next render already shows the route it asked for. Read back from
+      // `location` so local state is what a reload would parse.
+      sync();
+    },
+    [sync],
+  );
 
-  return { route, navigate };
+  return { route: state.route, navigate };
 }

@@ -1,3 +1,4 @@
+import React from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,6 +68,33 @@ describe('usePersistedState', () => {
     expect(result.current[0]).toBe('value of b');
     expect(localStorage.getItem('b')).toBe(JSON.stringify('value of b'));
     expect(localStorage.getItem('a')).toBe(JSON.stringify('set on a'));
+  });
+
+  it('keeps a set made in the same batch as a key change', () => {
+    function useProbe() {
+      const [panelId, setPanelId] = React.useState('a');
+      const [collapsed, setCollapsed] = usePersistedState(`k.${panelId}`, false);
+      return { collapsed, switchAndCollapse: () => { setCollapsed(true); setPanelId('b'); } };
+    }
+    const { result } = renderHook(() => useProbe());
+    act(() => result.current.switchAndCollapse());
+    expect(localStorage.getItem('k.a')).toBe('true');
+    expect(localStorage.getItem('k.b')).toBeNull();
+    expect(result.current.collapsed).toBe(false);
+  });
+
+  it('bails out when set to the current value, as useState does', () => {
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return usePersistedState(KEY, 'same');
+    });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    const before = renders;
+    act(() => result.current[1]('same'));
+    act(() => result.current[1]((v) => v));
+    expect(renders).toBe(before);
+    expect(setItem).not.toHaveBeenCalled();
   });
 
   it('returns the default and keeps working in memory when storage throws', () => {

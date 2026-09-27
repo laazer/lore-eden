@@ -68,6 +68,14 @@ describe('buildHash / parseHash', () => {
     expect(route.get('missing')).toBeNull();
   });
 
+  it('writes a lone surrogate as U+FFFD instead of throwing', () => {
+    const hash = buildHash('a\uD800b', [['k\uDC00', 'x\uD83D'], ['pair', '\uD83D\uDE00']]);
+    const route = parseHash(hash);
+    expect(route.segment).toBe('a\uFFFDb');
+    expect(route.get('k\uFFFD')).toBe('x\uFFFD');
+    expect(route.get('pair')).toBe('\uD83D\uDE00');
+  });
+
   it('strips exactly one leading slash', () => {
     expect(parseHash('#/enemy').segment).toBe('enemy');
     expect(parseHash('#//abilities').segment).toBe('/abilities');
@@ -122,6 +130,26 @@ describe('useHashRoute', () => {
     act(() => result.current.navigate('#/b?q=x y'));
     expect(result.current.route.segment).toBe('b');
     expect(result.current.route.rawQuery).toBe('q=x%20y');
+  });
+
+  it('renders once on mount and keeps the route identity across its own hashchange', async () => {
+    window.location.hash = '#/start';
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useHashRoute();
+    });
+    expect(renders).toBe(1);
+    const initial = result.current.route;
+    await flushHashChange();
+    expect(result.current.route).toBe(initial);
+
+    act(() => result.current.navigate('#/next'));
+    const navigated = result.current.route;
+    const afterNavigate = renders;
+    await flushHashChange();
+    expect(result.current.route).toBe(navigated);
+    expect(renders).toBe(afterNavigate);
   });
 
   it('stops listening on unmount', async () => {

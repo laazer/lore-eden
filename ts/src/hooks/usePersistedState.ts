@@ -59,6 +59,12 @@ interface Slot<T> {
   value: T;
   /** Set by the caller since the key was last read, so storage needs the write. */
   dirty: boolean;
+  /**
+   * A set on the previous key that no commit has written yet: a set and a key
+   * change in the same batch reach render together, and the slot holding the
+   * set is replaced before the write effect could see it.
+   */
+  pending?: { key: string; value: T };
 }
 
 /**
@@ -88,20 +94,27 @@ export function usePersistedState<T>(
   if (slot.key !== storageKey) {
     // Derived during render rather than in an effect, so no frame shows the
     // old key's value under the new key.
-    current = { key: storageKey, value: readStored(storageKey, defaultValue, parse), dirty: false };
+    current = {
+      key: storageKey,
+      value: readStored(storageKey, defaultValue, parse),
+      dirty: false,
+      pending: slot.dirty ? { key: slot.key, value: slot.value } : undefined,
+    };
     setSlot(current);
   }
 
   useEffect(() => {
+    if (slot.pending) writeStored(slot.pending.key, slot.pending.value, serializeRef.current);
     if (slot.dirty) writeStored(slot.key, slot.value, serializeRef.current);
   }, [slot]);
 
   const setValue = useCallback((next: SetStateAction<T>): void => {
-    setSlot((prev) => ({
-      key: prev.key,
-      value: typeof next === 'function' ? (next as (prev: T) => T)(prev.value) : next,
-      dirty: true,
-    }));
+    setSlot((prev) => {
+      const value = typeof next === 'function' ? (next as (prev: T) => T)(prev.value) : next;
+      // Returning `prev` lets React bail out of the render, and nothing is written.
+      if (Object.is(value, prev.value)) return prev;
+      return { key: prev.key, value, dirty: true };
+    });
   }, []);
 
   return [current.value, setValue];
