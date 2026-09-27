@@ -1,7 +1,9 @@
 # Shared policy
 
 Lint and duplication configuration that was already being copied between repos,
-in one place — with the drift it accumulated resolved rather than averaged.
+in one place — with the drift it accumulated resolved rather than averaged. The
+standards that are prose rather than configuration live here too, beside the
+gate or config that enforces their mechanical half.
 
 | File | What it settles |
 |---|---|
@@ -10,6 +12,7 @@ in one place — with the drift it accumulated resolved rather than averaged.
 | `ruff-web-framework.toml` | Opt-in accommodations for FastAPI/SQLModel idioms |
 | `oxlintrc.json` | React/TypeScript baseline |
 | `jscpd.json` + `jscpd.md` | What counts as a duplicate — see the decision record |
+| `ux-definition-of-done.md` | When a UI change is done; the prose half of the UX-states gate |
 
 ## Using them
 
@@ -28,6 +31,11 @@ genuine findings that two specific frameworks make idiomatic — a project not
 using them should keep the checks, and quietly weakening every project's lint to
 accommodate a dependency most do not have is how a shared baseline stops meaning
 anything.
+
+`ux-definition-of-done.md` is read, not run. Point your contributor guide or
+agent instructions at it rather than copying it, so there is one version of it;
+the gate that checks the parts a parser can see is
+`gates/lore_eden_gates/ts_ux_states_check.cjs`.
 
 ## Adopting on a repo that already has findings
 
