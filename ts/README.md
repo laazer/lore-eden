@@ -508,7 +508,7 @@ non-`Error` should say. The organization gate enforces it.
 ## Controls
 
 Buttons, inputs, a select, a switch, a checkbox, a field wrapper, tags, keycaps,
-status dots, skeletons, a spinner and a toast.
+status dots, skeletons, a spinner, a toast and a colour picker.
 
 ```tsx
 import { Field, TextInput, Button, Toast } from '@lore-eden/ui';
@@ -583,6 +583,53 @@ none of them asserts a class name.
   the commonest way a component library becomes unusable by keyboard.
 - **Everything forwards a ref**, including `Checkbox`, which keeps one of its own
   for the indeterminate write.
+
+### Colour
+
+A hex field, a swatch, a gradient direction selector, and a picker that puts
+them together. From blobert's asset editor.
+
+```tsx
+import { ColorPicker, type ColorPickerValue } from '@lore-eden/ui';
+
+const [fill, setFill] = useState<ColorPickerValue>({ type: 'single', color: '34d77f' });
+<ColorPicker label="Fill" value={fill} onChange={setFill} />
+```
+
+**The value is a discriminated union, and the mode is its tag.**
+
+```ts
+{ type: 'single', color }
+{ type: 'gradient', colorA, colorB, direction }   // 'horizontal' | 'vertical' | 'radial'
+```
+
+`{ type: 'single', colorA }` does not typecheck. There is no separate `mode`
+prop: the source took one beside the value and rendered a panel only when they
+agreed, so pressing "Gradient" showed an empty picker until the parent built a
+gradient itself. Here a tab emits a value of its mode — the one last seen there,
+or one converted from the current colour. `modes={['single']}` offers one mode
+and hides the tabs.
+
+A colour is six lowercase hex digits with no `#`. `HexInput` lets a partial
+value through while the user types and settles it on blur; `ColorSwatch`,
+`DirectionSelector` and `HexInput` are exported for rows of your own.
+
+**Hex text helpers** — `normalizeHex` (strict), `findHexInText` (recover one
+from CSS, JSON or a chat line), `sanitizeHex`, `hexForColorInput`,
+`copyHexToClipboard` (writes `#rrggbb`) and `readHexFromClipboard`. The source's
+paste path stripped every non-hex character and kept whatever six were left, so
+a pasted `12, 34, 56` became `#123456`; recovery now takes only a `#rrggbb` or a
+standalone run of six.
+
+- **Styling is tokens only**, in `color.css`, over the kit's own `Button`,
+  `TextInput` and `Field`. The source's was an object of literal hex, so it
+  stayed dark in a light app.
+- **Empty renders as empty.** A swatch for `""` or a half-typed `fff` is a dashed
+  outline, not black or white — either reads as a chosen colour.
+- **Copy writes only a whole colour.** `onCopy(ok)` tells the host whether it
+  reached the clipboard.
+- **No image mode.** The source's cropped atlases against its own asset service;
+  one here would take its source through a prop.
 
 ## Long-lived sockets
 
