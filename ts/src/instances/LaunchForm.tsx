@@ -6,7 +6,7 @@
  * Defaults are pre-filled, which is what makes the common case one click.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { Button, Field, Select, TextInput } from '../controls';
 import type { LaunchRequest, TemplateInfo, TemplateParam } from './types';
@@ -52,11 +52,13 @@ export function LaunchForm({ templates, launching, onLaunch }: LaunchFormProps):
     [templates, templateName],
   );
   const [name, setName] = useState('');
-  const [params, setParams] = useState<Record<string, string>>(() => defaultsFor(template));
-
-  // A different template has different parameters; carrying the old values
-  // across would submit keys the new one refuses.
-  useEffect(() => setParams(defaultsFor(template)), [template]);
+  // Typed values, kept per template name. Not reset by an effect on the
+  // template object: the host re-fetches templates as it polls, every fetch is
+  // a new object, and an effect keyed on it wiped whatever had been typed —
+  // on a slow machine, between typing and clicking Launch. Keyed by name, a
+  // switch to another template starts from its own defaults and a switch back
+  // finds what was typed there.
+  const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
 
   if (template === undefined) {
     return (
@@ -66,6 +68,9 @@ export function LaunchForm({ templates, launching, onLaunch }: LaunchFormProps):
     );
   }
 
+  const params = edits[template.name] ?? defaultsFor(template);
+  const setParam = (key: string, value: string): void =>
+    setEdits((prev) => ({ ...prev, [template.name]: { ...params, [key]: value } }));
   const missing = template.params.filter((p) => p.required && !params[p.key]);
   const submit = (event: React.FormEvent): void => {
     event.preventDefault();
@@ -91,7 +96,7 @@ export function LaunchForm({ templates, launching, onLaunch }: LaunchFormProps):
           key={param.key}
           param={param}
           value={params[param.key] ?? ''}
-          onChange={(value) => setParams((prev) => ({ ...prev, [param.key]: value }))}
+          onChange={(value) => setParam(param.key, value)}
         />
       ))}
       <Button type="submit" disabled={launching || missing.length > 0} aria-busy={launching}>

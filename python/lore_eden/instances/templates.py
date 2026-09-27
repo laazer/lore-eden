@@ -173,6 +173,20 @@ class CommandTemplate:
         )
 
 
+class TemplateSource(Protocol):
+    """Where a manager finds templates. :class:`TemplateCatalog` is the fixed one.
+
+    A host whose templates change at runtime — read from files, stored in a
+    database — implements this instead, and answers from the current state
+    on every call.
+    """
+
+    def get(self, name: str) -> InstanceTemplate:
+        """The template, or :class:`UnknownTemplateError`."""
+
+    def describe_all(self) -> list[TemplateInfo]: ...
+
+
 class TemplateCatalog:
     """The templates a host allows. Registering a name twice is an error."""
 
