@@ -14,14 +14,23 @@
  * not a hex code. The source's last resort stripped *every* non-hex character
  * from the text and accepted whatever six digits were left, so a pasted
  * `12, 34, 56` became `#123456` and `12:34:56` did too — a colour nobody
- * chose, applied without a word. The recovery path now takes a run of exactly
- * six hex digits standing on its own, which still finds `"ff0000"` inside
- * quotes or a line of CSS and no longer invents one from scattered digits.
+ * chose, applied without a word. Recovery now takes a `#rrggbb` with no further
+ * hex digit after it (a `#rrggbbaa` gives its RGB; `#deadbeef00` gives nothing),
+ * or text that is *only* six hex digits, optionally quoted. A six-digit word or
+ * number inside prose — `decade`, `123456` — is not a colour, and neither is
+ * anything assembled from scattered digits. `sanitizeHex` still strips, and so
+ * is not a recovery path: nothing here calls it on text a user typed or pasted.
  */
 
 const SIX_HEX = /^[0-9a-fA-F]{6}$/;
-const HASHED_HEX = /#([0-9a-fA-F]{6})/;
-const STANDALONE_HEX = /(?:^|[^0-9a-fA-F])([0-9a-fA-F]{6})(?![0-9a-fA-F])/;
+/**
+ * `#rrggbb`, or `#rrggbbaa` read as its RGB, with no hex digit after it. The
+ * alpha case is kept because a carried source test pastes `#ff0000ff` and
+ * expects `ff0000`; the value model has no alpha, so it is dropped.
+ */
+const HASHED_HEX = /#([0-9a-fA-F]{6})(?:[0-9a-fA-F]{2})?(?![0-9a-fA-F])/;
+/** The whole (trimmed) text is six hex digits, optionally in matching quotes. */
+const QUOTED_HEX = /^(["'`]?)([0-9a-fA-F]{6})\1$/;
 
 /**
  * What `<input type="color">` shows when the value is incomplete or invalid.
@@ -72,7 +81,10 @@ export function normalizeHex(raw: string): string | null {
 /**
  * Recover a hex colour from text that *contains* one — a line of CSS, a quoted
  * JSON value, a chat message. Strict parse first, then a `#rrggbb` anywhere
- * (so `#ff0000ff` yields its RGB), then a standalone run of six hex digits.
+ * that no further hex digit follows (so `#ff0000ff` yields its RGB and
+ * `#deadbeef00` nothing), then text that is only six hex digits in quotes.
+ * Null when none of those is there: this never builds a colour out of digits
+ * that were not written as one.
  */
 export function findHexInText(text: string): string | null {
   if (typeof text !== 'string') return null;
@@ -80,8 +92,8 @@ export function findHexInText(text: string): string | null {
   if (strict !== null) return strict;
   const hashed = HASHED_HEX.exec(text);
   if (hashed?.[1] !== undefined) return hashed[1].toLowerCase();
-  const standalone = STANDALONE_HEX.exec(text);
-  return standalone?.[1] !== undefined ? standalone[1].toLowerCase() : null;
+  const quoted = QUOTED_HEX.exec(text.trim());
+  return quoted?.[2] !== undefined ? quoted[2].toLowerCase() : null;
 }
 
 /** Write `#rrggbb` to the clipboard. Resolves false when it could not. */

@@ -607,19 +607,27 @@ const [fill, setFill] = useState<ColorPickerValue>({ type: 'single', color: '34d
 prop: the source took one beside the value and rendered a panel only when they
 agreed, so pressing "Gradient" showed an empty picker until the parent built a
 gradient itself. Here a tab emits a value of its mode — the one last seen there,
-or one converted from the current colour. `modes={['single']}` offers one mode
-and hides the tabs.
+or one converted from the current colour; when the parent replaces the value
+itself, that memory is dropped. `modes={['single']}` offers one mode and hides
+the tabs. `modes` chooses the tabs, not the value: a value whose `type` is not
+listed still renders in its own mode, with no tab for it.
 
 A colour is six lowercase hex digits with no `#`. `HexInput` lets a partial
-value through while the user types and settles it on blur; `ColorSwatch`,
+value through while the user types and settles it on blur — to the hex the text
+is or plainly holds, or else to empty, which renders as "No colour" — emitting
+only when that changes the value. A paste lands on the value current when the
+clipboard answers, not the one from when Paste was pressed. `ColorSwatch`,
 `DirectionSelector` and `HexInput` are exported for rows of your own.
 
 **Hex text helpers** — `normalizeHex` (strict), `findHexInText` (recover one
 from CSS, JSON or a chat line), `sanitizeHex`, `hexForColorInput`,
 `copyHexToClipboard` (writes `#rrggbb`) and `readHexFromClipboard`. The source's
 paste path stripped every non-hex character and kept whatever six were left, so
-a pasted `12, 34, 56` became `#123456`; recovery now takes only a `#rrggbb` or a
-standalone run of six.
+a pasted `12, 34, 56` became `#123456`. Recovery — on paste and on blur alike —
+now takes only a `#rrggbb` with no hex digit after it (`#rrggbbaa` gives its
+RGB), or text that is nothing but six hex digits, optionally quoted, so no
+colour is invented: `rgb(12, 34, 56)`, `#deadbeef00` and "a decade ago" give
+none.
 
 - **Styling is tokens only**, in `color.css`, over the kit's own `Button`,
   `TextInput` and `Field`. The source's was an object of literal hex, so it

@@ -485,3 +485,99 @@ describe('defects the extraction exposed', () => {
     expect(screen.getByRole('button', { name: 'Radial' })).toBeInTheDocument();
   });
 });
+
+describe('review findings on the extraction', () => {
+  it.each([
+    ['an rgb triple', '12, 34, 56'],
+    ['an rgb() call', 'rgb(12, 34, 56)'],
+    ['a run longer than six', 'deadbeef00'],
+    ['a six-letter word in prose', 'a decade ago'],
+  ])('blur does not invent a colour from %s', (_what, typed) => {
+    // Before: sanitize fallback stored `123456`, `b12345`, `deadbe`, `decade`.
+    const onChange = vi.fn();
+    render(<HexInput value={typed} onChange={onChange} />);
+    fireEvent.blur(screen.getByPlaceholderText('RRGGBB'));
+    expect(onChange).toHaveBeenCalledWith('');
+  });
+
+  it.each([['#FF0000'], ['ff0000'], ['"ff0000"'], ['color: #ff0000;']])(
+    'blur keeps a colour the text is or plainly holds (%j)',
+    (typed) => {
+      const onChange = vi.fn();
+      render(<HexInput value={typed} onChange={onChange} />);
+      fireEvent.blur(screen.getByPlaceholderText('RRGGBB'));
+      if (typed === 'ff0000') expect(onChange).not.toHaveBeenCalled();
+      else expect(onChange).toHaveBeenCalledWith('ff0000');
+    },
+  );
+
+  it.each([['ff0000'], ['']])('blur emits nothing when it settles to the same value (%j)', (color) => {
+    const onChange = vi.fn();
+    render(<ColorPicker value={single(color)} onChange={onChange} />);
+    fireEvent.blur(screen.getByPlaceholderText('RRGGBB'));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a paste that resolves after a direction change keeps that direction', async () => {
+    let resolveRead: (text: string) => void = () => undefined;
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        writeText: vi.fn(),
+        readText: vi.fn(
+          () =>
+            new Promise<string>((resolve) => {
+              resolveRead = resolve;
+            }),
+        ),
+      },
+    });
+    const seen: ColorPickerValue[] = [];
+    function Harness(): React.ReactElement {
+      const [value, setValue] = useState(gradient());
+      seen.push(value);
+      return <ColorPicker value={value} onChange={setValue} />;
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Paste' })[0]!);
+    fireEvent.click(screen.getByRole('button', { name: 'Vertical' }));
+    await act(async () => {
+      resolveRead('#123456');
+    });
+    expect(seen.at(-1)).toEqual({ type: 'gradient', colorA: '123456', colorB: '0000ff', direction: 'vertical' });
+  });
+
+  it('forgets what each mode held when the parent replaces the value', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<ColorPicker value={gradient('111111', '222222')} onChange={onChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Color' }));
+    // The parent ignores that and, later, sets a colour of its own.
+    rerender(<ColorPicker value={single('abcdef')} onChange={onChange} />);
+    onChange.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Gradient' }));
+    expect(onChange).toHaveBeenCalledWith({
+      type: 'gradient',
+      colorA: 'abcdef',
+      colorB: 'abcdef',
+      direction: 'horizontal',
+    });
+  });
+
+  it('still remembers across a round trip the parent only echoed', () => {
+    function Harness(): React.ReactElement {
+      const [value, setValue] = useState(gradient('111111', '222222'));
+      // A parent that copies the value it is given, rather than storing it.
+      return <ColorPicker value={value} onChange={(v) => setValue({ ...v })} />;
+    }
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Color' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gradient' }));
+    const values = (screen.getAllByPlaceholderText('RRGGBB') as HTMLInputElement[]).map((i) => i.value);
+    expect(values).toEqual(['111111', '222222']);
+  });
+
+  it('names each native picker from its field', () => {
+    render(<ColorPicker value={gradient()} onChange={vi.fn()} />);
+    const titles = Array.from(document.querySelectorAll('input[type="color"]')).map((i) => i.getAttribute('title'));
+    expect(titles).toEqual(['From Color picker', 'To Color picker']);
+  });
+});

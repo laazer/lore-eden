@@ -601,3 +601,26 @@ describe("findHexInText", () => {
     expect(findHexInText("ff0000ff")).toBeNull();
   });
 });
+
+/** Review findings: recovery took six digits from a longer run, or from prose. */
+describe("findHexInText — takes only a colour that was written as one", () => {
+  it.each([
+    ["a #-run of ten", "#deadbeef00"],
+    ["a #-run of seven", "#ff00001"],
+    ["a six-letter word in prose", "a decade ago"],
+    ["a six-digit number in prose", "order 123456 shipped"],
+    ["an unmatched quote", "\"ff0000'"],
+  ])("returns null for %s", (_what, text) => {
+    expect(findHexInText(text)).toBeNull();
+  });
+
+  it.each([
+    ["#rrggbb", "#FF0000", "ff0000"],
+    ["#rrggbbaa, as its RGB", "#ff000080", "ff0000"],
+    ["a quoted run", "'00ff00'", "00ff00"],
+    ["a quoted run with spaces", "  \"00ff00\"  ", "00ff00"],
+    ["a #-run later in the text", "#ff00001 or #00ff00", "00ff00"],
+  ])("recovers %s", (_what, text, hex) => {
+    expect(findHexInText(text)).toBe(hex);
+  });
+});
