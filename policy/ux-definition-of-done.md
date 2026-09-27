@@ -90,12 +90,13 @@ four shapes, all diff-scoped:
 
 | Shape | The line above it enforces |
 |---|---|
-| An icon-only button or link with no text, `aria-label` or `title` | The flow reads on its own |
+| A button or link whose only children are icons, with no text and no accessible name (`aria-label`, `title`, or a child's `alt`) | The flow reads on its own |
 | An `onClick` on a non-interactive element with no role, `tabIndex` and key handler | No dead controls — for a keyboard user |
 | A click-to-close backdrop in a file that never handles Escape | No dead controls — for a keyboard user |
 | A `.map()` over fetched rows in a file with no empty-case branch | Every reachable state is designed |
 
-Its waiver is `ux-ok:` on the line, with a reason of substance.
+Its waiver is a `ux-ok:` comment on or above the line, with a reason of
+substance; the bare marker does not waive anything.
 
 Everything else here is a reading. The gate cannot tell whether a message
 says what to do next, whether a tab is clipped at a given width, whether a
