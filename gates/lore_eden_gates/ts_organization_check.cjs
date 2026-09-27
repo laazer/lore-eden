@@ -16,59 +16,14 @@
 
 const fs = require("fs");
 const path = require("path");
-const { createRequire } = require("module");
-const { spawnSync } = require("child_process");
-
-/**
- * Resolve the TypeScript parser, preferring this package's own dependency.
- *
- * This used to resolve from a sibling `client/node_modules` by relative path,
- * which worked only while the gate lived inside the repo it graded. Once the
- * gate is installed elsewhere — the whole point of a shared library — that path
- * points at nothing, or worse, at a *different* repo's parser version.
- *
- * Order:
- *   1. this package's own node_modules (normal case once installed);
- *   2. the graded repo's node_modules, so a repo that already has the parser
- *      need not have a second copy installed for the gate;
- *   3. throw. There is no fourth option: a gate that cannot parse cannot report
- *      a file clean, so it must fail loudly rather than skip.
- *
- * Lazy, because the graded repo is not known until argv is parsed.
- */
-let cachedParse = null;
-/** The repo being graded, set once argv is parsed; the parser fallback needs it. */
-let gradedRepoRoot = null;
-function loadParse(repoRoot) {
-  if (cachedParse) return cachedParse;
-
-  const attempts = [];
-  try {
-    cachedParse = require("@typescript-eslint/typescript-estree").parse;
-    return cachedParse;
-  } catch (err) {
-    attempts.push(`  - ${__dirname} (this gate's own dependencies): ${err.code || err.message}`);
-  }
-
-  if (repoRoot) {
-    for (const dir of [repoRoot, path.join(repoRoot, "client")]) {
-      const manifest = path.join(dir, "package.json");
-      try {
-        cachedParse = createRequire(manifest)("@typescript-eslint/typescript-estree").parse;
-        return cachedParse;
-      } catch (err) {
-        attempts.push(`  - ${dir}: ${err.code || err.message}`);
-      }
-    }
-  }
-
-  throw new Error(
-    "cannot load @typescript-eslint/typescript-estree; tried:\n" +
-      attempts.join("\n") +
-      "\nInstall this gate package's dependencies (npm ci in its directory), " +
-      "or add the parser to the repo being checked."
-  );
-}
+const {
+  isTestFile,
+  parseFile,
+  parseGradedFile,
+  readSource,
+  runGate,
+  tsSourceRoot,
+} = require("./ts_gate_harness.cjs");
 
 const MAX_FILE_LINES = 1200;
 const MAX_TSX_FILE_LINES = 1200;
@@ -79,50 +34,12 @@ const API_CALL_PATTERNS = [/\bfetch\s*\(/, /\baxios\s*\./, /\baxios\s*\(/];
 
 const ALLOW_INSTANCEOF = "ts-org: allow-instanceof";
 
-const errors = [];
-
 function isComponentFile(filePath) {
   return filePath.endsWith(".tsx");
 }
 
 function isIndexFile(filePath) {
   return path.basename(filePath) === "index.ts" || path.basename(filePath) === "index.tsx";
-}
-
-function isTestFile(filePath) {
-  return (
-    filePath.includes("/__tests__/") ||
-    filePath.includes(".test.") ||
-    filePath.includes(".spec.")
-  );
-}
-
-function parseFile(filePath, content) {
-  // `loadParse` throws when the parser is missing entirely — that is a failure
-  // to run, not a parse failure, and it must not be swallowed into `null` and
-  // read as "nothing found here".
-  const parse = loadParse(gradedRepoRoot);
-  // JSX by extension, which is TypeScript's own rule rather than a preference:
-  // in a `.ts` file `<T>` opens a type parameter, and in a `.tsx` file it opens
-  // a JSX element. The two readings are mutually exclusive, which is why the
-  // language splits them by suffix.
-  //
-  // This passed `jsx: true` for everything. On a `.ts` file with a generic —
-  // `useQuery<DataPage<Record>>(...)` — the parser reports "Unexpected token.
-  // Did you mean `{'>'}`?", `parseGradedFile` turns that into an
-  // UnexaminableFileError, and the gate refuses the whole run. Correct
-  // behaviour on a wrong premise: the file parses fine, under the rule its
-  // extension asks for.
-  //
-  // Invisible here, because nothing in this package has a generic in a `.ts`
-  // file. It surfaced the first time the gate was pointed at a real consumer,
-  // which is the entire argument for cutting one over.
-  const jsx = filePath.endsWith(".tsx") || filePath.endsWith(".jsx");
-  try {
-    return parse(content, { jsx, loc: true, range: false, comment: false });
-  } catch {
-    return null;
-  }
 }
 
 function normalizeBody(node, lines) {
@@ -209,6 +126,8 @@ function findErrorHelper(repoRoot) {
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
+      // silent-ok: this search only picks which helper the advice names; a
+      // directory it cannot list leaves the advice at "extract one", still true.
       continue;
     }
     for (const entry of entries) {
@@ -220,6 +139,8 @@ function findErrorHelper(repoRoot) {
         try {
           match = pattern.exec(fs.readFileSync(full, "utf8"));
         } catch {
+          // silent-ok: as above — a file it cannot read only means the advice
+          // names no helper; nothing graded is passed or failed by it.
           continue;
         }
         if (match) {
@@ -270,220 +191,6 @@ function errorNarrowingErrors(filePath, ast, lines, added, repoRoot) {
   }
   visit(ast);
   return found;
-}
-
-/**
- * This run could not examine something it was asked to grade.
- *
- * **The invariant of every gate here: a gate may not report success over
- * anything it did not actually read.** Both ways of failing it live under this
- * one type and leave through one handler, so a third way inherits the
- * behaviour instead of becoming the next silent pass. Mirrors
- * `UnexaminableError` in precommit_git_diff.py.
- */
-class UnexaminableError extends Error {}
-
-/**
- * A file this run was told to grade but could not read or parse — missing (a
- * cone sparse-checkout, a `skip-worktree` entry whose file was removed),
- * unreadable, or unparseable. `existsSync` + `continue` treated every one of
- * those exactly like a file that graded clean: `examined 1 file(s)` +
- * `checks passed.` + exit 0, over a violation sitting in the commit.
- * Mirrors `UnexaminableFileError` in precommit_git_diff.py.
- */
-class UnexaminableFileError extends UnexaminableError {}
-
-/**
- * A source file larger than this is not graded. Mirrors `MAX_SOURCE_BYTES` in
- * precommit_git_diff.py: no hand-written module comes near it, and a path that
- * does is a device, a stream, or a mistake.
- */
-const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
-
-/**
- * The text of a file this gate is about to grade, or a loud failure. Never
- * null: the caller cannot tell "nothing wrong here" from "I never read it",
- * and it took the first reading every time.
- *
- * The same rule as `read_source_text` in precommit_git_diff.py, in the same
- * order: resolve, refuse a non-regular target, refuse a target that leaves the
- * repository, cap the size, then read. A bare `readFileSync` follows a
- * committed `src/x.ts -> /dev/zero` until the host gives out, and reads and
- * reports on a file the repository does not contain — one gate refusing that
- * while its mirror does not is a rule that exists only in one language.
- *
- * The boundary is crossed only when the *listed* path is inside `repoRoot` and
- * its target is not; a path the caller named outright scoped the run itself.
- * Both sides are real-pathed, or a checkout behind a symlinked prefix (macOS
- * `/var` -> `/private/var`) has the check silently skipped for every file.
- */
-function readSource(filePath, repoRoot) {
-  let real;
-  let stat;
-  try {
-    real = fs.realpathSync(filePath);
-    stat = fs.statSync(real);
-  } catch (err) {
-    throw new UnexaminableFileError(
-      `${filePath}: this run could not read it, so it cannot be reported clean (${err.message})`,
-    );
-  }
-  if (!stat.isFile()) {
-    throw new UnexaminableFileError(
-      `${filePath}: not a regular file (resolves to ${real}), so it cannot be graded and cannot be reported clean`,
-    );
-  }
-  if (repoRoot) {
-    const root = fs.realpathSync(repoRoot);
-    // The listed path with its *directory* resolved but not the file itself —
-    // `locatedPath` in precommit_git_diff.py, and for the same reason.
-    const located = path.join(fs.realpathSync(path.dirname(filePath)), path.basename(filePath));
-    // Component containment, not `startsWith`: `/w/repo` is a string prefix of
-    // `/w/repo-vendor/x.ts`, which is where vendored trees sit.
-    const inside = (candidate) => candidate === root || candidate.startsWith(root + path.sep);
-    if (inside(located) && !inside(real)) {
-      throw new UnexaminableFileError(
-        `${filePath}: resolves to ${real}, outside the repository at ${root}, so it cannot be graded and cannot be reported clean`,
-      );
-    }
-  }
-  if (stat.size > MAX_SOURCE_BYTES) {
-    throw new UnexaminableFileError(
-      `${filePath}: ${stat.size} bytes exceeds the ${MAX_SOURCE_BYTES}-byte grading limit (resolves to ${real}), so it cannot be graded and cannot be reported clean`,
-    );
-  }
-  try {
-    return fs.readFileSync(real, "utf8");
-  } catch (err) {
-    throw new UnexaminableFileError(
-      `${filePath}: this run could not read it, so it cannot be reported clean (${err.message})`,
-    );
-  }
-}
-
-/** The AST of a file this gate grades. A file it cannot parse is not a file it cleared. */
-function parseGradedFile(filePath, content) {
-  const ast = parseFile(filePath, content);
-  if (ast === null) {
-    throw new UnexaminableFileError(
-      `${filePath}: this run could not parse it, so it cannot be reported clean`,
-    );
-  }
-  return ast;
-}
-
-/** The base a gate falls back to when its caller named none. */
-const DEFAULT_BASE_REF = "main";
-
-/**
- * Ask `precommit_git_diff.py` what this run should examine.
- *
- * This used to be ~560 lines of hand-ported Python living in this file: the
- * error classes, git-path decoding, env scrubbing, ref validation, scope
- * resolution, untracked discovery, submodule announcement and diff-suppression
- * detection. None of it was TypeScript-specific, and the two copies drifting
- * apart was itself a source of defects — each fix having to be written twice,
- * in two languages, by whoever remembered the other existed. The copy in this
- * file was already a version behind: it still asked "did the diff emit a header
- * for this path", which a `diff=<driver>` printing three header lines walks
- * straight through.
- *
- * The gate already shells out to git repeatedly. One more subprocess buys a
- * single implementation of scope policy, so a scope fix now lands in Python and
- * both languages get it.
- *
- * What stays on this side is the part that is genuinely TypeScript's: which
- * suffixes to grade and which source root to confine discovery to. Those are
- * passed *in*, so the file count is still computed after this gate's own filter
- * — by the same code that counts for the Python gates.
- *
- * A bare `python3`, deliberately: it is what the installed lefthook block runs
- * and what every Python gate here runs under. On an interpreter older than 3.10
- * the resolver refuses by name with nothing on stdout, which arrives below as
- * an unexaminable run carrying that message — not as a pass.
- */
-function resolveGateScope({ label, repoRoot, diffScope, baseRef, files }) {
-  const emitted = spawnSync(
-    "python3",
-    [
-      path.join(__dirname, "precommit_git_diff.py"),
-      "--emit-scope-json",
-      "--repo",
-      repoRoot,
-      "--scope",
-      diffScope,
-      "--base",
-      baseRef,
-      "--label",
-      label,
-      "--suffix",
-      ".ts",
-      "--suffix",
-      ".tsx",
-      "--suffix",
-      ".cjs",
-      "--select-root",
-      tsSourceRoot(repoRoot),
-      ...files.map((f) => path.resolve(f)),
-    ],
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (emitted.error) {
-    throw new UnexaminableError(`could not run the scope resolver: ${emitted.error.message}`);
-  }
-  let payload;
-  try {
-    payload = JSON.parse(emitted.stdout);
-  } catch (parseError) {
-    // Anything that is not JSON means the resolver did not get far enough to
-    // answer — a missing interpreter, one too old, an import failure, a crash.
-    // None of those are "nothing to examine", so none of them may become a pass.
-    throw new UnexaminableError(
-      `the scope resolver produced no usable answer (exit ${emitted.status}): ` +
-        `${(emitted.stderr || emitted.stdout || "").trim().split("\n").slice(-3).join(" ")}`,
-    );
-  }
-  // Printed here rather than by the resolver: stdout there is the JSON channel,
-  // and these lines have to appear in this gate's own order.
-  for (const notice of payload.notices || []) console.log(notice);
-  if (payload.error) throw new UnexaminableError(payload.error);
-
-  // Both sides real-pathed, and the file's *parent* only — `locatedPath` in
-  // precommit_git_diff.py, whose relpath keys these maps. A checkout reached
-  // through a symlinked prefix (macOS `/tmp` -> `/private/tmp`, every agent
-  // worktree under a linked home) otherwise produces `../../private/tmp/...`,
-  // which matches no key: every lookup below misses, the touched-line set comes
-  // back empty, and the gate prints a credible file count and a pass. Resolving
-  // the file itself instead would follow a symlinked source out of the tree and
-  // lose it the same way.
-  const rootReal = fs.realpathSync(repoRoot);
-  const relOf = (filePath) => {
-    const abs = path.resolve(filePath);
-    const located = path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs));
-    return path.relative(rootReal, located);
-  };
-  const untracked = new Set(payload.untracked || []);
-  const undiffable = new Set(payload.undiffable || []);
-  const additions = payload.additions || {};
-  const counts = payload.counts || {};
-
-  const touched = (filePath, lineCount) => {
-    const rel = relOf(filePath);
-    // Untracked, or changed in a way git would not describe: there is no
-    // smaller honest answer than the whole file, and the empty set is what let
-    // `-diff` pass everything.
-    if (untracked.has(rel) || undiffable.has(rel)) return wholeFile(lineCount);
-    const [addedCount = 0, deletedCount = 0] = counts[rel] || [];
-    return { added: new Set(additions[rel] || []), addedCount, deletedCount };
-  };
-
-  return { scope: payload.scope, files: payload.files, touched };
-}
-
-function wholeFile(lineCount) {
-  const added = new Set();
-  for (let i = 1; i <= lineCount; i += 1) added.add(i);
-  return { added, addedCount: lineCount, deletedCount: 0 };
 }
 
 function checkFile(filePath, content, lines, { added, netGrowing, repoRoot }) {
@@ -540,30 +247,6 @@ function checkFile(filePath, content, lines, { added, netGrowing, repoRoot }) {
   return fileErrors;
 }
 
-/**
- * Where this repo keeps its TypeScript. loregarden uses client/src; other
- * workspaces put it at src/ or app/. Detected, not hardcoded, because these
- * checks run against every workspace the control plane drives.
- *
- * The *project* directory, not the source directory inside it: `ts`, not
- * `ts/src`. Discovery is confined to whatever this returns, and confining it to
- * `ts/src` left `ts/tests/` ungraded — sixteen files, including every test in
- * the package. The hook never noticed, because lefthook passes staged paths
- * explicitly and an explicit list is not narrowed; CI's `--scope branch` run
- * has no explicit list, so it was the one that went blind.
- *
- * What the confinement is actually for is not grading a repo-root `vite.config`
- * or a `scripts/` directory by rules written for application code, and the
- * project directory still excludes those.
- */
-function tsSourceRoot(repoRoot) {
-  for (const candidate of ["client", "ts", "frontend", "app", "src"]) {
-    const full = path.resolve(repoRoot, candidate);
-    if (fs.existsSync(full) && fs.statSync(full).isDirectory()) return full;
-  }
-  return path.resolve(repoRoot);
-}
-
 function buildCatalog(changedSet, repoRoot) {
   const catalog = new Map();
   const clientSrc = tsSourceRoot(repoRoot);
@@ -588,6 +271,8 @@ function buildCatalog(changedSet, repoRoot) {
             catalog.get(fn.key).push({ file: full, name: fn.name, line: fn.line });
           }
         } catch (err) {
+          // silent-ok: this is a command-line gate, so stderr is where its user
+          // reads; the note prints beside the report it qualifies.
           // Background for the DRY catalog, not a file this run grades, so it
           // cannot make the run report a violation clean. It can still weaken a
           // DRY match, so it is reported rather than dropped.
@@ -619,81 +304,26 @@ function crossDryErrors(filePath, content, lines, catalog) {
   return fileErrors;
 }
 
-function parseArgv(argv) {
-  const files = [];
-  let repoArg = null;
-  let diffScope = "staged";
-  let baseRef = DEFAULT_BASE_REF;
-  for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === "--repo" && argv[i + 1]) repoArg = argv[(i += 1)];
-    else if (argv[i] === "--scope" && argv[i + 1]) diffScope = argv[(i += 1)];
-    else if (argv[i] === "--base" && argv[i + 1]) baseRef = argv[(i += 1)];
-    else if (/\.(ts|tsx|cjs)$/.test(argv[i])) files.push(argv[i]);
-  }
-  // Real-pathed, and that is load-bearing rather than tidy. The scope resolver
-  // answers with paths under the *resolved* root, while everything derived from
-  // this one — `tsSourceRoot`, the catalog walk — is derived from the string the
-  // caller passed. Behind a symlinked prefix (`/tmp` -> `/private/tmp`, an agent
-  // worktree under a linked home) the two never compare equal, so
-  // `buildCatalog`'s `changedSet.has(full)` guard missed every graded file, put
-  // it in the DRY catalog, and reported it as duplicating itself:
-  //
-  //   ChatComposer.tsx:19: function `ChatComposer` duplicates existing code
-  //     (../../../../var/folders/.../ChatComposer.tsx:ChatComposer@19)
-  //
-  // Same class as `relOf` below and as `read_source_text`'s resolved-prefix
-  // check: one path, two spellings, compared as strings.
-  const repoRoot = fs.realpathSync(repoArg ? path.resolve(repoArg) : process.cwd());
-  const label = diffScope === "staged" && !repoArg ? "pre-commit" : "gate";
-  return { files, repoRoot, diffScope, baseRef, label };
-}
+/** Suffixes this gate grades. `.cjs` so the gates' own scripts are graded too. */
+const SUFFIXES = [".ts", ".tsx", ".cjs"];
 
-function run({ files, repoRoot, diffScope, baseRef, label }) {
-  const { files: args, touched } = resolveGateScope({
-    label,
-    repoRoot,
-    diffScope,
-    baseRef,
-    files,
-  });
-  if (args.length === 0) {
-    return 0;
-  }
-
-  const changedSet = new Set(args.map((a) => path.resolve(a)));
-  const catalog = buildCatalog(changedSet, repoRoot);
-
-  for (const filePath of args) {
-    const content = readSource(filePath, repoRoot);
-    const lines = content.split("\n");
-    const { added, addedCount, deletedCount } = touched(filePath, lines.length);
-    const netGrowing = addedCount > deletedCount;
-    errors.push(...checkFile(filePath, content, lines, { added, netGrowing, repoRoot }));
-    if (!isTestFile(filePath)) {
-      errors.push(...crossDryErrors(filePath, content, lines, catalog));
+runGate({
+  title: "TypeScript organization",
+  suffixes: SUFFIXES,
+  grade: ({ repoRoot }, { files, touched }) => {
+    const errors = [];
+    const changedSet = new Set(files.map((a) => path.resolve(a)));
+    const catalog = buildCatalog(changedSet, repoRoot);
+    for (const filePath of files) {
+      const content = readSource(filePath, repoRoot);
+      const lines = content.split("\n");
+      const { added, addedCount, deletedCount } = touched(filePath, lines.length);
+      const netGrowing = addedCount > deletedCount;
+      errors.push(...checkFile(filePath, content, lines, { added, netGrowing, repoRoot }));
+      if (!isTestFile(filePath)) {
+        errors.push(...crossDryErrors(filePath, content, lines, catalog));
+      }
     }
-  }
-
-  if (errors.length > 0) {
-    console.error(`${label}: TypeScript organization check failed:`);
-    for (const err of errors) {
-      console.error(` - ${err}`);
-    }
-    return 1;
-  }
-
-  console.log(`${label}: TypeScript organization checks passed.`);
-  return 0;
-}
-
-const invocation = parseArgv(process.argv.slice(2));
-gradedRepoRoot = invocation.repoRoot;
-try {
-  process.exit(run(invocation));
-} catch (err) {
-  if (!(err instanceof UnexaminableError)) throw err;
-  // One handler for the one invariant: a scope this run could not resolve, and
-  // a file it could not read, are both things it did not examine.
-  console.error(`${invocation.label}: cannot determine what to examine: ${err.message}`);
-  process.exit(1);
-}
+    return errors;
+  },
+});
