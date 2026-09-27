@@ -183,6 +183,23 @@ moves an instance from `starting` to `ready`. Each launch gets its own process
 group, and stop signals the whole group, so forked workers do not keep the port.
 POSIX only.
 
+Agents get the same operations as MCP tools, over the same manager, so an agent
+and a person at the UI act on the same instances:
+
+```python
+from lore_eden.instances import register_instance_tools
+
+register_instance_tools(registry, lambda: manager, prefix="shop_")
+# shop_list_instances, shop_launch_instance, shop_instance_status, shop_stop_instance
+```
+
+A failure comes back as `ok: false` with an `error_kind` and `retryable`, not
+as an exception. That way an agent can tell "no such template" apart from "no
+port free yet". Launch never blocks the agent's turn for long: `wait_seconds`
+is capped at 30, and after that the agent polls `instance_status`. A host with
+its own dispatch table takes the `(definition, handler)` pairs from
+`instance_tools()` and registers them itself.
+
 The UI half is `InstancesPanel` in `@lore-eden/ui`, over `createInstancesClient`
 and `useInstances` for a host that wants its own layout:
 
