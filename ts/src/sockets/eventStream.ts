@@ -25,27 +25,32 @@
  * reconnect decision left to the client is whether to allow the browser's at
  * all — which is the `reconnect` flag, not a policy.
  *
- * ## Three guarantees
+ * ## Guarantees
  *
- * - **A terminal event settles the stream exactly once.** Whatever arrives
- *   after it — a second terminal event, a progress event already queued, or
- *   the transport error the browser fires when the server closes the
- *   connection it just finished on — is discarded. That last one is the
- *   reason: without it a run that succeeded is reported as a failure.
- * - **Disposing suppresses events already in flight.** Closing an
- *   `EventSource` does not recall events already queued, so every listener
- *   checks first. A component that unmounted is not called back into.
- * - **A payload that is not JSON arrives verbatim** rather than throwing.
- *   Every consumer needs the same forgiveness, so it lives here.
+ * - **A terminal event settles the stream exactly once, and closes it first.**
+ *   Closing is what matters: a browser checks `readyState` before dispatching
+ *   each queued event and before reporting a reconnect, so once closed it
+ *   delivers neither a progress event already queued nor the transport error
+ *   for the server ending the connection it just finished on. Were the stream
+ *   left open, that error would report a run that succeeded as a failure.
+ * - **Disposing closes the stream**, which by the same rule stops the browser
+ *   calling back into a component that unmounted.
+ * - **Every listener also checks its own `settled` flag.** Defence in depth,
+ *   not a fix for browser behaviour: it covers polyfills and fakes that keep
+ *   dispatching after `close()`, and a handler that re-enters the stream.
+ * - **Only a JSON object arrives parsed.** A payload that is not JSON, or is
+ *   JSON but not an object (`42`, `true`, `null`, `[1]`), arrives as the raw
+ *   text rather than throwing or posing as the declared shape. Every consumer
+ *   needs the same forgiveness, so it lives here.
  */
 
 /** `EventSource.CONNECTING` — local so this module loads where the global does not exist. */
 const CONNECTING = 0;
 
 /**
- * A payload as the handler receives it: the caller's declared shape, or the
- * raw text when it was not JSON. The shape is a declaration, not a check —
- * the stream parses and does not validate.
+ * A payload as the handler receives it: the caller's declared shape when the
+ * data was a JSON object, otherwise the raw text. The shape is a declaration,
+ * not a check — the stream parses and does not validate the object's fields.
  */
 export type StreamPayload<T> = T | string;
 
@@ -84,12 +89,17 @@ function isServerEvent(event: Event): event is MessageEvent {
 }
 
 function parsePayload(raw: string): unknown {
+  let parsed: unknown;
   try {
-    return JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
     // Not JSON: the handler gets the text as the server sent it.
     return raw;
   }
+  // Only an object can be the declared shape. A scalar or array would reach a
+  // handler typed `T | string` as neither, so it too arrives as its text.
+  const isPlainObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
+  return isPlainObject ? parsed : raw;
 }
 
 /**

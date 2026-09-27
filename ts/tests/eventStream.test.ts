@@ -9,7 +9,12 @@ import { openEventStream, type EventStreamOptions } from '../src/sockets';
  *
  * Built on EventTarget so `addEventListener` behaves as the browser's does,
  * including a transport error dispatched under the name `error` to every
- * listener for that name before `onerror` runs.
+ * listener for that name before `onerror` runs. Like the browser, it drops
+ * events and errors once closed: the HTML spec dispatches each queued event
+ * only "if readyState is other than CLOSED", and aborts a reconnect when
+ * CLOSED. `honoursClose = false` turns that off to model a polyfill that keeps
+ * dispatching, which is the only way to reach the stream's own `settled`
+ * guards — defence in depth, not a browser behaviour.
  */
 class FakeEventSource extends EventTarget {
   static readonly CONNECTING = 0;
@@ -19,6 +24,7 @@ class FakeEventSource extends EventTarget {
   readyState = FakeEventSource.CONNECTING;
   onerror: ((event: Event) => void) | null = null;
   closeCalls = 0;
+  honoursClose = true;
 
   constructor(
     readonly url: string,
@@ -27,14 +33,16 @@ class FakeEventSource extends EventTarget {
     super();
   }
 
-  /** A named event from the server. Delivered whether or not we closed: that is the point. */
+  /** A named event from the server, dropped once closed unless `honoursClose` is off. */
   emit(name: string, data: unknown): void {
+    if (this.dropsAfterClose()) return;
     const text = typeof data === 'string' ? data : JSON.stringify(data);
     this.dispatchEvent(new MessageEvent(name, { data: text }));
   }
 
   /** The browser's transport error: no data, `readyState` set as the browser would. */
   fail(readyState: number = FakeEventSource.CONNECTING): void {
+    if (this.dropsAfterClose()) return;
     if (this.readyState !== FakeEventSource.CLOSED) this.readyState = readyState;
     const event = new Event('error');
     this.dispatchEvent(event);
@@ -44,6 +52,10 @@ class FakeEventSource extends EventTarget {
   close(): void {
     this.closeCalls += 1;
     this.readyState = FakeEventSource.CLOSED;
+  }
+
+  private dropsAfterClose(): boolean {
+    return this.honoursClose && this.readyState === FakeEventSource.CLOSED;
   }
 }
 
@@ -98,8 +110,30 @@ describe('openEventStream', () => {
     ]);
   });
 
+  it('hands JSON that is not an object over verbatim, as text', () => {
+    const { source, calls } = open();
+    for (const raw of ['42', 'true', 'null', '[1]']) source.emit('log', raw);
+    expect(calls).toEqual([
+      ['log', '42'],
+      ['log', 'true'],
+      ['log', 'null'],
+      ['log', '[1]'],
+    ]);
+  });
+
   it('fires a terminal event once and closes the stream', () => {
     const { source, calls } = open();
+    source.emit('done', { output_file: 'a.glb' });
+    expect(calls).toEqual([['done', { output_file: 'a.glb' }]]);
+    expect(source.closeCalls).toBe(1);
+    expect(source.readyState).toBe(FakeEventSource.CLOSED);
+  });
+
+  it('ignores whatever a polyfill still dispatches after a terminal event', () => {
+    // Defence in depth: a browser drops these itself once closed. The fake is
+    // told not to, so the stream's own `settled` guard is what is under test.
+    const { source, calls } = open();
+    source.honoursClose = false;
     source.emit('done', { output_file: 'a.glb' });
     source.emit('done', { output_file: 'b.glb' });
     source.emit('error', { message: 'late' });
@@ -109,13 +143,18 @@ describe('openEventStream', () => {
   });
 
   it('discards a transport error that arrives after done', () => {
-    // The server closes the connection it just finished on, and the browser
-    // reports that as an error. A run that succeeded must not read as failed.
-    const { source, calls } = open();
-    source.emit('done', { output_file: null });
-    source.fail();
-    source.fail(FakeEventSource.CLOSED);
-    expect(calls).toEqual([['done', { output_file: null }]]);
+    // The server closes the connection it just finished on. Closing on `done`
+    // is what stops the browser reporting that as an error; the `settled`
+    // guard repeats it for a polyfill. Either way a success must not read as
+    // failed.
+    for (const honoursClose of [true, false]) {
+      const { source, calls } = open();
+      source.honoursClose = honoursClose;
+      source.emit('done', { output_file: null });
+      source.fail();
+      source.fail(FakeEventSource.CLOSED);
+      expect(calls).toEqual([['done', { output_file: null }]]);
+    }
   });
 
   it('reports a transport error before any terminal event, once, and closes', () => {
@@ -130,12 +169,12 @@ describe('openEventStream', () => {
     expect(source.readyState).toBe(FakeEventSource.CLOSED);
   });
 
-  it('suppresses events already in flight when disposed', () => {
-    // A component unmounts and closes the stream; events the browser queued
-    // before the close must not call back into a dead tree. Defect in the
-    // source: its disposer set `finished`, which only the terminal events
-    // checked, so a queued `log` still reached `onLog` after disposal.
+  it('suppresses events a polyfill still dispatches after disposal', () => {
+    // A component unmounts and closes the stream. A browser then delivers
+    // nothing more; the `settled` guard is defence in depth for a polyfill
+    // that keeps dispatching, so the fake is told to keep dispatching.
     const { source, calls, dispose } = open();
+    source.honoursClose = false;
     source.emit('log', { line: 'before' });
     dispose();
     source.emit('log', { line: 'in flight' });

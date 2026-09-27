@@ -637,17 +637,20 @@ const dispose = openEventStream<{ log: { line: string } }, { done: { file: strin
 });
 ```
 
-Payloads are parsed as JSON, and one that is not JSON reaches the handler as
-its raw text rather than throwing — the declared payload type is a declaration,
-not a check, so a handler sees `T | string`.
+A payload that is a JSON object is parsed; anything else — text that is not
+JSON, or JSON that is not an object (`42`, `true`, `null`, `[1]`) — reaches the
+handler as its raw text rather than throwing. The declared payload type is a
+declaration, not a check, so a handler sees `T | string`.
 
-- **A terminal event fires exactly once and closes the stream.** The transport
-  error the browser raises when the server closes the connection it just
-  finished on is discarded, so a run that succeeded is not reported as failed.
-- **Disposing suppresses events already in flight.** Closing an `EventSource`
-  does not recall events already queued, so every listener checks first. The
-  source only guarded its terminal events, and a queued `log` still called
-  back into a component that had unmounted.
+- **A terminal event fires exactly once and closes the stream.** A browser
+  checks `readyState` before dispatching each queued event and before
+  reporting a reconnect, so once closed it delivers neither a queued `log` nor
+  the transport error for the server ending the connection it just finished
+  on — a run that succeeded is not reported as failed. Disposing closes the
+  stream the same way.
+- **Listeners also check a `settled` flag after finish or dispose.** This is
+  defence in depth, not a fix for browser behaviour: it covers polyfills and
+  fakes that keep dispatching after `close()`, and handlers that re-enter.
 - **A server event named `error` is not the transport's `error`.** The browser
   dispatches its transport error under that name too, with no data. The source
   parsed it as the server's event, so every dropped connection read as
