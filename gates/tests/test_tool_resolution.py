@@ -129,9 +129,9 @@ def test_an_executable_on_path_wins(tmp_path):
 def test_an_executable_in_a_venv_is_found_when_path_lacks_it(tmp_path, monkeypatch):
     """shellcheck ships as a pip wheel, so it lands in the venv, not on PATH.
 
-    PATH is emptied rather than left alone: another test in this suite puts a
-    real venv's ``bin`` on it, and inheriting that made this assert against
-    whichever shellcheck the machine happened to have.
+    PATH is emptied rather than left alone, so the assertion is about the
+    fallback and not about whichever shellcheck the machine happens to have on
+    PATH — which, on any checkout that installed `shellcheck-py`, it does.
     """
     monkeypatch.setenv("PATH", "")
     (tmp_path / ".git").mkdir()
