@@ -8,7 +8,11 @@ before listening, a group that ignores SIGTERM, a zombie that still answers
 from __future__ import annotations
 
 import os
+import select
+import signal
 import socket
+import subprocess
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -242,6 +246,121 @@ def test_a_self_registered_live_instance_cannot_be_stopped(manager: InstanceMana
     with pytest.raises(NotManagedError):
         manager.stop(handle.record.id)
     handle.release()
+
+
+
+# -- stopping a group whose leader already exited ---------------------------
+#
+# macOS answers ``killpg`` with EPERM, not ESRCH, while a group holds nothing
+# but an exited leader nobody has reaped. The leader can exit between stop's
+# ``poll()`` and its next signal, so stop has to recognise that answer as
+# "gone" — for its own child only.
+
+
+class _Leader:
+    """A real group leader, and a pipe that reports its exit without reaping it."""
+
+    def __init__(self) -> None:
+        self._exit_read, write_end = os.pipe()
+        self.child = subprocess.Popen(  # noqa: S603 - fixed argv
+            ["sleep", "30"], start_new_session=True, pass_fds=(write_end,)
+        )
+        os.close(write_end)
+
+    def wait_exited_unreaped(self) -> None:
+        # The kernel closes the child's end as it exits; nothing waits on the
+        # child, so it stays a zombie.
+        ready, _, _ = select.select([self._exit_read], [], [], 10)
+        assert ready, "the leader did not exit"
+        assert os.read(self._exit_read, 1) == b""
+
+    def close(self) -> None:
+        if self.child.poll() is None:
+            self.child.kill()
+            self.child.wait()
+        os.close(self._exit_read)
+
+
+@pytest.fixture
+def leader(manager: InstanceManager) -> Iterator[_Leader]:
+    built = _Leader()
+    manager._children["zombie-leader"] = built.child
+    yield built
+    manager._children.pop("zombie-leader", None)
+    built.close()
+
+
+def _group_is_gone(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def test_stop_treats_a_group_holding_only_its_exited_leader_as_gone(
+    manager: InstanceManager, leader: _Leader
+) -> None:
+    leader.child.send_signal(signal.SIGTERM)
+    leader.wait_exited_unreaped()
+    manager._terminate(leader.child.pid, "zombie-leader")
+    assert leader.child.returncode is not None
+    assert _group_is_gone(leader.child.pid)
+
+
+def test_stop_treats_a_leader_exiting_after_its_poll_as_gone(
+    manager: InstanceManager, leader: _Leader
+) -> None:
+    real_poll = leader.child.poll
+    calls = 0
+
+    def exits_just_after_poll() -> int | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            # The race: SIGTERM has landed, the leader exits, and this poll
+            # returned before the exit was there to reap.
+            leader.wait_exited_unreaped()
+            return None
+        return real_poll()
+
+    with mock.patch.object(leader.child, "poll", side_effect=exits_just_after_poll):
+        manager._terminate(leader.child.pid, "zombie-leader")
+    assert leader.child.returncode is not None
+    assert _group_is_gone(leader.child.pid)
+
+
+
+def test_stop_treats_a_leader_exiting_before_its_sigkill_as_gone(
+    manager: InstanceManager, leader: _Leader
+) -> None:
+    real_killpg = os.killpg
+
+    def exits_before_sigkill(pgid: int, sig: int) -> None:
+        if sig == signal.SIGKILL:
+            # It honoured SIGTERM just as the grace period ran out.
+            leader.wait_exited_unreaped()
+        real_killpg(pgid, sig)
+
+    with (
+        mock.patch.object(manager_module, "STOP_GRACE_SECONDS", 0),
+        mock.patch.object(manager_module.os, "killpg", side_effect=exits_before_sigkill),
+    ):
+        manager._terminate(leader.child.pid, "zombie-leader")
+    assert leader.child.returncode is not None
+    assert _group_is_gone(leader.child.pid)
+
+@pytest.mark.parametrize("instance_id", ["zombie-leader", "no-child-here"])
+def test_stop_raises_eperm_it_cannot_explain_by_its_own_exited_child(
+    manager: InstanceManager, leader: _Leader, instance_id: str
+) -> None:
+    # Our child still running, or no child of ours at all: EPERM is a real
+    # permission failure on the group and must not read as "stopped".
+    denied = PermissionError(1, "Operation not permitted")
+    with mock.patch.object(manager_module.os, "killpg", side_effect=denied):
+        with pytest.raises(PermissionError):
+            manager._terminate(leader.child.pid, instance_id)
+    assert leader.child.poll() is None
 
 
 # -- HTTP ------------------------------------------------------------------
