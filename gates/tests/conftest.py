@@ -141,3 +141,13 @@ def unborn_repo(tmp_path: Path) -> Repo:
     made.write("pyproject.toml", "[project]\nname='x'\n")
     made.write("myapp/__init__.py", "")
     return made
+
+
+def pytest_configure(config):
+    """Profile this run when `LORE_EDEN_PROFILE` asks for it; otherwise do nothing.
+
+    `GATES_DIR` is already on `sys.path` above, so the plugin imports by name.
+    """
+    import pytest_profile
+
+    pytest_profile.register(config, suite="gates")

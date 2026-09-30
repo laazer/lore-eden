@@ -7,7 +7,9 @@ application's tables, `create_all` would not be able to build it.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -30,3 +32,19 @@ def session(tmp_path) -> Iterator[Session]:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as db_session:
         yield db_session
+
+
+# The profiling plugin lives with the gate library: it is standard-library only
+# and shared by both suites, and duplicating it here would be a second copy to
+# keep in step. Reached by path rather than by install, the same way the gates
+# themselves are run.
+_GATES_DIR = Path(__file__).resolve().parents[2] / "gates" / "lore_eden_gates"
+if str(_GATES_DIR) not in sys.path:
+    sys.path.insert(0, str(_GATES_DIR))
+
+
+def pytest_configure(config):
+    """Profile this run when `LORE_EDEN_PROFILE` asks for it; otherwise do nothing."""
+    import pytest_profile
+
+    pytest_profile.register(config, suite="python")

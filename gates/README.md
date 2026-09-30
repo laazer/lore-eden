@@ -55,6 +55,7 @@ Supporting, not installed as hooks:
 |---|---|
 | `precommit_git_diff.py` | The shared diff/scope harness every Python gate imports. Scrubs `GIT_DIR`/`GIT_WORK_TREE`, decodes `core.quotePath` escapes, resolves scopes, and refuses to call an unresolved scope a pass |
 | `select_pytest_targets.py` | Import-graph test selection for pre-push, biased hard toward over-running |
+| `pytest_profile.py` | Per-test profiling, written as named metrics so time is the first dimension rather than the only one. Inert unless `LORE_EDEN_PROFILE` names an output path |
 
 ## Scopes
 

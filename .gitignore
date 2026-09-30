@@ -19,3 +19,6 @@ build/
 htmlcov/
 .coverage
 coverage.xml
+
+# Test profiles, written on request by gates/lore_eden_gates/pytest_profile.py
+.profile/
