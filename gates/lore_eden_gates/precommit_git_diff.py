@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Iterable, Sequence
@@ -108,6 +110,107 @@ class UnexaminableFileError(UnexaminableError):
     sitting in the commit. A file that cannot be examined is not clean — it is
     unexaminable, and the run has to say so and fail.
     """
+
+
+#: Where a virtualenv keeps its executables, POSIX first.
+_VENV_BIN_NAMES = ("bin", "Scripts")
+
+
+def _repo_root_for(start: Path) -> Path:
+    """The checkout `start` sits in, or `start` itself when it is not in one."""
+    for candidate in (start, *start.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return start
+
+
+def _immediate_dirs(root: Path) -> list[Path]:
+    """Visible subdirectories of `root`, or nothing when it cannot be listed."""
+    try:
+        return sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+    except OSError:
+        return []
+
+
+def venv_bin_dirs(start: Path | None = None) -> list[Path]:
+    """Executable directories of any virtualenv belonging to this checkout.
+
+    One level down as well as at the root, because that is where these layouts
+    actually put them: lore-eden's is ``python/.venv``, loregarden's is
+    ``server/.venv``. Searched rather than configured, since these gates run in
+    repositories that have never heard of this one.
+    """
+    root = _repo_root_for((start or Path.cwd()).resolve())
+    venvs = [root / ".venv", root / "venv"]
+    for child in _immediate_dirs(root):
+        venvs.extend((child / ".venv", child / "venv"))
+    return [venv / name for venv in venvs for name in _VENV_BIN_NAMES if (venv / name).is_dir()]
+
+
+def _can_import(interpreter: Path, tool: str) -> bool:
+    """Whether `interpreter` can import `tool`.
+
+    A candidate that will not execute — a stale venv whose python is gone, a
+    file without the executable bit — is simply not a candidate. That is the
+    question being asked, not an error being hidden: the caller goes on to try
+    the next one, and reports through `require_tool_ran` if none works.
+    """
+    try:
+        proc = subprocess.run(
+            [str(interpreter), "-c", f"import {tool}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:  # py-silent: allow - an unrunnable candidate is a "no", see above
+        return False
+    return proc.returncode == 0
+
+
+def tool_interpreter(tool: str, start: Path | None = None) -> str:
+    """The interpreter to run ``-m <tool>`` with.
+
+    The hooks these gates install invoke a bare ``python3`` on purpose — see
+    :mod:`interpreter` for why pinning an absolute path was rejected — but the
+    linters they drive are usually installed in the project's virtualenv, not
+    into whatever ``python3`` resolves to. That mismatch made the gate refuse
+    with "pylint did not run" on a checkout that had pylint sitting in
+    ``python/.venv``, which is a gate not running dressed up as a gate failing.
+
+    So: this interpreter when it can import the tool, otherwise a virtualenv of
+    this checkout that can. Falling back to ``sys.executable`` when nothing can
+    is deliberate — `require_tool_ran` then produces the real diagnosis, rather
+    than this function inventing a worse one.
+    """
+    if not tool.isidentifier():
+        raise ValueError(f"not an importable module name: {tool!r}")
+    if importlib.util.find_spec(tool) is not None:
+        return sys.executable
+    for bin_dir in venv_bin_dirs(start):
+        for name in ("python", "python3", "python.exe"):
+            candidate = bin_dir / name
+            if candidate.is_file() and _can_import(candidate, tool):
+                return str(candidate)
+    return sys.executable
+
+
+def tool_executable(name: str, start: Path | None = None) -> str:
+    """The path to run `name` as a command, preferring PATH then this checkout.
+
+    The same mismatch as `tool_interpreter`, for a tool that ships an executable
+    rather than an importable module: ``shellcheck`` arrives as a pip wheel, so
+    it lands in the virtualenv's ``bin`` and not on a hook's PATH. Returns the
+    bare name when nothing is found, so the caller reports "not installed"
+    exactly as it did before.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    for bin_dir in venv_bin_dirs(start):
+        candidate = bin_dir / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return name
 
 
 def require_tool_ran(tool: str, proc: subprocess.CompletedProcess[str]) -> None:

@@ -53,7 +53,7 @@ Supporting, not installed as hooks:
 
 | Script | Purpose |
 |---|---|
-| `precommit_git_diff.py` | The shared diff/scope harness every Python gate imports. Scrubs `GIT_DIR`/`GIT_WORK_TREE`, decodes `core.quotePath` escapes, resolves scopes, and refuses to call an unresolved scope a pass |
+| `precommit_git_diff.py` | The shared diff/scope harness every Python gate imports. Scrubs `GIT_DIR`/`GIT_WORK_TREE`, decodes `core.quotePath` escapes, resolves scopes, and refuses to call an unresolved scope a pass. Also resolves the linters a gate drives, preferring this interpreter and falling back to a virtualenv of the checkout |
 | `select_pytest_targets.py` | Import-graph test selection for pre-push, biased hard toward over-running |
 | `pytest_profile.py` | Per-test profiling, written as named metrics so time is the first dimension rather than the only one. Inert unless `LORE_EDEN_PROFILE` names an output path |
 

@@ -52,6 +52,7 @@ from precommit_git_diff import (  # noqa: E402 - same
     git_repo_root,
     repo_relative_posix,
     resolve_gate_scope,
+    tool_executable,
 )
 
 SH_SUFFIX = ".sh"
@@ -92,7 +93,7 @@ def run_shellcheck(paths: Sequence[Path], repo: Path | None) -> list[tuple[str, 
     pylint.
     """
     cmd = [
-        "shellcheck",
+        tool_executable("shellcheck"),
         "-x",
         "--source-path=SCRIPTDIR",
         "-f",

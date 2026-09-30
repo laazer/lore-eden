@@ -37,6 +37,7 @@ from precommit_git_diff import (  # noqa: E402 - deliberately after require_pyth
     parse_staged_additions,
     require_tool_ran,
     scrubbed_git_env,
+    tool_interpreter,
 )
 
 # "`name` is too complex (14 > 10)"
@@ -79,7 +80,7 @@ def _run_ruff_c901(paths: list[str], *, config: Path | None) -> list[dict]:
     if not paths:
         return []
     cmd = [
-        sys.executable,
+        tool_interpreter("ruff"),
         "-m",
         "ruff",
         "check",

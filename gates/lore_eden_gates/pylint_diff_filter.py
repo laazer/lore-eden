@@ -50,6 +50,7 @@ from precommit_git_diff import (  # noqa: E402 - deliberately after require_pyth
     parse_staged_additions,
     require_tool_ran,
     scrubbed_git_env,
+    tool_interpreter,
 )
 
 _COUNT_RE = re.compile(r"\((\d+)/(\d+)\)")
@@ -75,7 +76,7 @@ def _run_pylint_json(paths: list) -> list:
     if not paths:
         return []
     proc = subprocess.run(
-        [sys.executable, "-m", "pylint", "--output-format=json", *paths],
+        [tool_interpreter("pylint"), "-m", "pylint", "--output-format=json", *paths],
         capture_output=True,
         text=True,
         check=False,
