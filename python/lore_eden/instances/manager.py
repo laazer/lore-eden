@@ -318,24 +318,42 @@ class InstanceManager:
             Path(record.log_path).unlink(missing_ok=True)
 
     def _terminate(self, pgid: int, instance_id: str) -> None:
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except ProcessLookupError:
+        child = self._children.get(instance_id)
+        if not _signal_group(pgid, signal.SIGTERM, child):
             return
         deadline = time.monotonic() + STOP_GRACE_SECONDS
-        child = self._children.get(instance_id)
         while time.monotonic() < deadline:
             if child is not None:
                 child.poll()
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
+            if not _signal_group(pgid, 0, child):
                 return
             time.sleep(_POLL_SECONDS)
         logger.warning("instance %s ignored SIGTERM for %ss; killing", instance_id, STOP_GRACE_SECONDS)
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
+        if not _signal_group(pgid, signal.SIGKILL, child):
             return
         if child is not None:
             child.wait(timeout=STOP_GRACE_SECONDS)
+
+
+def _signal_group(pgid: int, sig: int, child: subprocess.Popen[bytes] | None) -> bool:
+    """Send ``sig`` to the group; ``False`` when it has no live member left.
+
+    macOS answers ``EPERM``, not ``ESRCH``, for a group whose only member is
+    an exited leader nobody has reaped yet — and the leader can exit between
+    the caller's ``poll()`` and this call. That answer is ours to interpret
+    only when the leader is our own child: reap it, then ask again, so what
+    decides is the group's real membership. An ``EPERM`` on any other group,
+    or one that survives the reap, is a real permission failure and raises.
+    """
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        if child is None or child.poll() is None:
+            raise
+        try:
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            return False
+    return True
