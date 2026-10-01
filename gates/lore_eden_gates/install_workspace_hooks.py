@@ -45,6 +45,11 @@ LEGACY_MARKERS = (
 COMMAND_PREFIX = "lore-eden"
 
 
+#: Runner for the Python gates: `gate-python.sh`, beside the installer's own
+#: scripts, which runs them under python/.venv where their tools are installed.
+PYTHON_RUNNER = "python"
+
+
 class ManagedGate(NamedTuple):
     """One command the managed block writes."""
 
@@ -72,28 +77,28 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
     ManagedGate(
         f"{COMMAND_PREFIX}-py-organization",
         "Python organization guardrails",
-        "python3",
+        PYTHON_RUNNER,
         "py_organization_check.py",
         PY_GLOB,
     ),
     ManagedGate(
         f"{COMMAND_PREFIX}-py-silent-except",
         "Python silently-caught exceptions",
-        "python3",
+        PYTHON_RUNNER,
         "py_silent_except_check.py",
         PY_GLOB,
     ),
     ManagedGate(
         f"{COMMAND_PREFIX}-py-git-subprocess",
         "Python git subprocess routing",
-        "python3",
+        PYTHON_RUNNER,
         "py_git_subprocess_check.py",
         PY_GLOB,
     ),
     ManagedGate(
         f"{COMMAND_PREFIX}-py-defensive-normalization",
         "Python defensive normalization",
-        "python3",
+        PYTHON_RUNNER,
         "py_defensive_normalization_check.py",
         PY_GLOB,
     ),
@@ -131,7 +136,7 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
     ManagedGate(
         f"{COMMAND_PREFIX}-css-organization",
         "CSS organization guardrails",
-        "python3",
+        PYTHON_RUNNER,
         "css_organization_check.py",
         CSS_GLOB,
     ),
@@ -141,7 +146,7 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
     ManagedGate(
         f"{COMMAND_PREFIX}-sh-shellcheck",
         "Shell script analysis (shellcheck)",
-        "python3",
+        PYTHON_RUNNER,
         "sh_shellcheck_check.py",
         SH_GLOB,
     ),
@@ -151,7 +156,7 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
     ManagedGate(
         f"{COMMAND_PREFIX}-data-formats",
         "Configuration and lockfiles parse",
-        "python3",
+        PYTHON_RUNNER,
         "data_format_check.py",
         DATA_GLOB,
     ),
@@ -168,14 +173,14 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
     ManagedGate(
         f"{COMMAND_PREFIX}-py-complexity",
         "Python complexity growth (Ruff C901, diff-scoped)",
-        "python3",
+        PYTHON_RUNNER,
         "ruff_complexity_diff_filter.py",
         PY_GLOB,
     ),
     ManagedGate(
         f"{COMMAND_PREFIX}-py-statements",
         "Python statement growth (Pylint, diff-scoped)",
-        "python3",
+        PYTHON_RUNNER,
         "pylint_diff_filter.py",
         PY_GLOB,
     ),
@@ -204,6 +209,13 @@ def script_path(gates_root: Path, repo_root: Path | None, script: str) -> str:
         return str(full.relative_to(repo_root.resolve()))
     except ValueError:
         return str(full)
+
+
+def runner_command(gates_root: Path, repo_root: Path | None, runner: str) -> str:
+    """The command a gate's script is handed to, spelled like its script path."""
+    if runner != PYTHON_RUNNER:
+        return runner
+    return f"bash {script_path(gates_root.parent / 'scripts', repo_root, 'gate-python.sh')}"
 
 
 def render_block(
@@ -240,7 +252,8 @@ def render_block(
                 f"  name: {gate.title} (lore-eden)",
                 "  priority: 1",
                 f'  glob: "{gate.glob}"',
-                f"  run: {gate.runner} {script_path(gates_root, repo_root, gate.script)}"
+                f"  run: {runner_command(gates_root, repo_root, gate.runner)} "
+                f"{script_path(gates_root, repo_root, gate.script)}"
                 " {staged_files}",
             ]
         )

@@ -38,22 +38,22 @@ pre-commit:
       name: Python organization guardrails (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 gates/lore_eden_gates/py_organization_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/py_organization_check.py {staged_files}
     lore-eden-py-silent-except:
       name: Python silently-caught exceptions (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 gates/lore_eden_gates/py_silent_except_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/py_silent_except_check.py {staged_files}
     lore-eden-py-git-subprocess:
       name: Python git subprocess routing (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 gates/lore_eden_gates/py_git_subprocess_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/py_git_subprocess_check.py {staged_files}
     lore-eden-py-defensive-normalization:
       name: Python defensive normalization (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 gates/lore_eden_gates/py_defensive_normalization_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/py_defensive_normalization_check.py {staged_files}
     lore-eden-ts-organization:
       name: TypeScript organization guardrails (lore-eden)
       priority: 1
@@ -73,27 +73,27 @@ pre-commit:
       name: CSS organization guardrails (lore-eden)
       priority: 1
       glob: "{*.css,**/*.css}"
-      run: python3 gates/lore_eden_gates/css_organization_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/css_organization_check.py {staged_files}
     lore-eden-sh-shellcheck:
       name: Shell script analysis (shellcheck) (lore-eden)
       priority: 1
       glob: "{*.sh,**/*.sh}"
-      run: python3 gates/lore_eden_gates/sh_shellcheck_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/sh_shellcheck_check.py {staged_files}
     lore-eden-data-formats:
       name: Configuration and lockfiles parse (lore-eden)
       priority: 1
       glob: "{*.json,*.yml,*.yaml,*.toml,**/*.json,**/*.yml,**/*.yaml,**/*.toml}"
-      run: python3 gates/lore_eden_gates/data_format_check.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/data_format_check.py {staged_files}
     lore-eden-py-complexity:
       name: Python complexity growth (Ruff C901, diff-scoped) (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 gates/lore_eden_gates/ruff_complexity_diff_filter.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/ruff_complexity_diff_filter.py {staged_files}
     lore-eden-py-statements:
       name: Python statement growth (Pylint, diff-scoped) (lore-eden)
       priority: 1
       glob: "{*.py,**/*.py}"
-      run: python3 gates/lore_eden_gates/pylint_diff_filter.py {staged_files}
+      run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/pylint_diff_filter.py {staged_files}
     # <<< lore-eden gate guardrails (managed) <<<
 
 # Sequential on purpose: both commands drive pytest, and two suites competing for
