@@ -102,9 +102,11 @@ unguarded merge.
 `LORE_EDEN_FULL_TESTS=1` forces the full run. `LORE_EDEN_TESTS_BASE=<ref>` asks
 what a given range would select.
 
-The hooks invoke a bare `python3`, which is whichever one is first on your PATH.
-If it predates 3.10 the gates refuse by name and tell you so — they need AST node
-types that do not exist before then.
+The Python gates run through `gates/scripts/gate-python.sh`, which uses
+`python/.venv` and puts its `bin/` first on PATH — that is where pylint, ruff and
+shellcheck are installed. Without a venv it falls back to a bare `python3` and
+says so; if that predates 3.10 the gates refuse by name and tell you so — they
+need AST node types that do not exist before then.
 
 The pre-push gate suite prefers `python/.venv` and falls back to any interpreter
 on PATH that is 3.10+ *and* has pytest, saying which one it used. It does not

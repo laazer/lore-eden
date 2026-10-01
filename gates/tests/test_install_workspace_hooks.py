@@ -8,6 +8,7 @@ rather than an error anybody sees.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -348,3 +349,115 @@ class TestExcludedGates:
     def test_an_exclusion_without_a_reason_is_refused(self, tmp_path):
         root = self._repo(tmp_path, {"excluded_gates": {"lore-eden-py-organization": ""}})
         assert self._install(root).returncode == 1
+
+
+class TestPythonGatesRunUnderTheVenv:
+    """The Python gates run through `gates/scripts/gate-python.sh`, not a bare
+    `python3`.
+
+    A bare `python3` is whichever is first on PATH. `scripts/bootstrap-worktree.sh`
+    installs pylint, ruff and shellcheck into `python/.venv` — not there — so the
+    pylint and shellcheck gates refused every `.py` and `.sh` commit on a fully
+    bootstrapped checkout ("No module named pylint", "shellcheck is not installed").
+    """
+
+    WRAPPER = Path(__file__).resolve().parent.parent / "scripts" / "gate-python.sh"
+
+    def test_no_python_gate_is_run_by_a_bare_interpreter(self, config):
+        install(config)
+        text = config.read_text(encoding="utf-8")
+        assert "run: python3 " not in text
+        assert f"run: bash {self.WRAPPER} {GATES_ROOT / 'pylint_diff_filter.py'}" in text
+
+    def test_self_install_spells_the_wrapper_repo_relative(self, tmp_path):
+        repo = tmp_path / "selfhosted"
+        (repo / "gates" / "lore_eden_gates").mkdir(parents=True)
+        (repo / "gates" / "scripts").mkdir()
+        config = repo / "lefthook.yml"
+        config.write_text(MINIMAL_CONFIG, encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(INSTALLER),
+                "--config",
+                str(config),
+                "--gates-root",
+                str(repo / "gates" / "lore_eden_gates"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        text = config.read_text(encoding="utf-8")
+        assert str(tmp_path) not in text, f"absolute path leaked into the block:\n{text}"
+        assert (
+            "run: bash gates/scripts/gate-python.sh gates/lore_eden_gates/py_organization_check.py"
+            in text
+        )
+
+    @pytest.fixture
+    def layout(self, tmp_path: Path) -> Path:
+        """A checkout shaped like this one, with the wrapper copied in — it finds
+        the venv relative to its own location."""
+        root = tmp_path / "checkout"
+        (root / "gates" / "scripts").mkdir(parents=True)
+        wrapper = root / "gates" / "scripts" / "gate-python.sh"
+        wrapper.write_text(self.WRAPPER.read_text(encoding="utf-8"), encoding="utf-8")
+        return root
+
+    def _run(self, layout: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["bash", str(layout / "gates" / "scripts" / "gate-python.sh"), "-c",
+             "import os, sys; print(sys.executable); print(os.environ['PATH'])"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_prefers_the_checkouts_venv_and_puts_its_tools_on_path(self, layout):
+        venv_bin = layout / "python" / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").symlink_to(sys.executable)
+
+        result = self._run(layout)
+
+        assert result.returncode == 0, result.stderr
+        _, path = result.stdout.splitlines()
+        # shellcheck is found by name, so the venv's bin must lead PATH.
+        assert path.split(":")[0] == str(venv_bin)
+
+    def test_a_worktree_without_its_own_venv_uses_the_primary_checkouts(self, tmp_path):
+        """Agent worktrees are created without a venv, and git hooks are shared
+        across worktrees — so without this, every agent commit touching a `.sh`
+        file is refused for a tool the primary checkout already has."""
+        primary = tmp_path / "primary"
+        (primary / "gates" / "scripts").mkdir(parents=True)
+        (primary / "gates" / "scripts" / "gate-python.sh").write_text(
+            self.WRAPPER.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        venv_bin = primary / "python" / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").symlink_to(sys.executable)
+        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        for args in (
+            ["init", "-q", "-b", "main"],
+            ["add", "gates"],
+            ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "base"],
+            ["worktree", "add", "-q", str(tmp_path / "wt")],
+        ):
+            subprocess.run(["git", *args], cwd=primary, env=env, check=True, capture_output=True)
+
+        result = self._run(tmp_path / "wt")
+
+        assert result.returncode == 0, result.stderr
+        _, path = result.stdout.splitlines()
+        assert path.split(":")[0] == str(venv_bin.resolve())
+
+    def test_without_a_venv_falls_back_to_python3_and_says_so(self, layout):
+        result = self._run(layout)
+
+        assert result.returncode == 0, result.stderr
+        assert "bootstrap-worktree.sh" in result.stderr

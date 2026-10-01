@@ -273,8 +273,9 @@ The trees still differ, and these are the reasons:
   `node_modules`, then the graded repo's, then throws with what it tried;
   loregarden's resolves `../../client` by relative path, which is what made the
   gate un-extractable in the first place.
-* **How the `.cjs` invokes the resolver.** A bare `python3` here, matching the
-  installed lefthook block and every Python gate; `bash server_python.sh` there.
+* **How the `.cjs` invokes the resolver.** A bare `python3` here — the resolver
+  needs no tool, so it skips the `gate-python.sh` the installed block runs the
+  Python gates through; `bash server_python.sh` there.
 * **`relOf` in the `.cjs`.** Here it mirrors `located_path` — both sides
   real-pathed, the file's parent only. loregarden's compares against the
   unresolved root, so a checkout behind a symlinked prefix (macOS `/tmp` ->

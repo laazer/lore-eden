@@ -122,9 +122,9 @@ class TestEveryInstalledPythonGateIsGuarded:
     """
 
     def test_all_of_them_call_require_python(self) -> None:
-        from install_workspace_hooks import MANAGED_GATES
+        from install_workspace_hooks import MANAGED_GATES, PYTHON_RUNNER
 
-        python_gates = [gate.script for gate in MANAGED_GATES if gate.runner == "python3"]
+        python_gates = [gate.script for gate in MANAGED_GATES if gate.runner == PYTHON_RUNNER]
         assert python_gates, "the installer stopped installing python gates"
 
         unguarded = [
