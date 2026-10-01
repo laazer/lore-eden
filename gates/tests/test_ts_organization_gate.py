@@ -8,9 +8,12 @@ installed somewhere else, which is the entire point of the library.
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 
 import pytest
+from conftest import GATES_DIR, Repo, make_repo, run_git
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 
@@ -358,3 +361,107 @@ class TestJsxIsDecidedByExtension:
         result = run_gate(repo)
         assert result.returncode == 1, output(result)
         assert "could not parse" in output(result)
+
+
+class TestAWorktreeBorrowsThePrimaryCheckoutsParser:
+    """A linked worktree has no `gates/node_modules` until it is bootstrapped,
+    and git hooks are shared across worktrees — so every TypeScript commit in a
+    fresh one was refused with "cannot load @typescript-eslint/typescript-estree"
+    while the primary checkout, one `.git` file away, had the parser installed.
+
+    These copy the gate package into a primary repo, give only the primary a
+    `gates/node_modules`, and run the *worktree's* copy of the gate, laid out
+    the way agents work: under the primary's `.claude/worktrees/`.
+    """
+
+    @staticmethod
+    def make_primary(tmp_path, *, with_parser: bool):
+        primary = make_repo(tmp_path / "primary")
+        shutil.copytree(
+            GATES_DIR,
+            primary.root / "gates" / "lore_eden_gates",
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+        shutil.copy(GATES_DIR.parent / "package.json", primary.root / "gates" / "package.json")
+        primary.write(".gitignore", "node_modules/\n")
+        primary.commit("gates")
+        if with_parser:
+            (primary.root / "gates" / "node_modules").symlink_to(GATES_DIR.parent / "node_modules")
+        return primary
+
+    @staticmethod
+    def add_worktree(primary, *extra: str):
+        worktree = primary.root / ".claude" / "worktrees" / "agent"
+        run_git(["worktree", "add", "-q", *extra, "-b", "agent", str(worktree)], primary.root)
+        assert not (worktree / "gates" / "node_modules").exists()
+        tree = Repo(worktree)
+        ts_repo(tree, "src/Widget.tsx", FETCH_IN_COMPONENT)
+        return tree
+
+    @staticmethod
+    def run_worktree_gate(tree):
+        # The worktree's own copy, as the shared hook's relative `run:` line
+        # reaches it — not GATES_DIR, which has a parser beside it.
+        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        return subprocess.run(
+            [
+                "node",
+                str(tree.root / "gates" / "lore_eden_gates" / "ts_organization_check.cjs"),
+                "--repo",
+                str(tree.root),
+                "--scope",
+                "worktree",
+            ],
+            cwd=tree.root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+    def test_the_worktree_grades_with_the_primarys_parser(self, tmp_path):
+        tree = self.add_worktree(self.make_primary(tmp_path, with_parser=True))
+
+        result = self.run_worktree_gate(tree)
+
+        # A finding, not a pass: proof the file was parsed and read.
+        assert "cannot load" not in output(result), output(result)
+        assert result.returncode == 1, output(result)
+        assert "Widget.tsx" in output(result)
+        assert "examined 1 file(s)" in output(result)
+
+    def test_relative_worktree_paths_resolve_too(self, tmp_path):
+        # `--relative-paths` writes both `.git`'s gitdir and the admin dir's
+        # back-pointer relative; `commondir` is relative either way.
+        primary = self.make_primary(tmp_path, with_parser=True)
+        probe = subprocess.run(
+            ["git", "worktree", "add", "-h"],
+            cwd=primary.root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # Listed as `--[no-]relative-paths`.
+        if "relative-paths" not in probe.stdout + probe.stderr:
+            pytest.skip("git predates `worktree add --relative-paths` (2.48)")
+        tree = self.add_worktree(primary, "--relative-paths")
+        assert not (tree.root / ".git").read_text().split(":", 1)[1].strip().startswith("/")
+
+        result = self.run_worktree_gate(tree)
+
+        assert "cannot load" not in output(result), output(result)
+        assert result.returncode == 1, output(result)
+        assert "Widget.tsx" in output(result)
+
+    def test_no_parser_anywhere_is_still_a_loud_refusal(self, tmp_path):
+        # The fallback must not turn "nothing resolved" into a skip. The refusal
+        # names the primary's copy, so a reader sees where else it looked.
+        primary = self.make_primary(tmp_path, with_parser=False)
+        tree = self.add_worktree(primary)
+
+        result = self.run_worktree_gate(tree)
+
+        assert result.returncode != 0, output(result)
+        assert "cannot load @typescript-eslint/typescript-estree" in output(result)
+        assert str(primary.root / "gates") in output(result)
+        assert "checks passed" not in output(result)
