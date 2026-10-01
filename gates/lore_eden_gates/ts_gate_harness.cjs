@@ -53,9 +53,11 @@ class UnexaminableFileError extends UnexaminableError {}
  *
  * Order:
  *   1. this package's own node_modules (normal case once installed);
- *   2. the graded repo's node_modules, so a repo that already has the parser
+ *   2. the same package in the primary checkout, when this one sits in a linked
+ *      git worktree — see `primaryCopyOfThisPackage`;
+ *   3. the graded repo's node_modules, so a repo that already has the parser
  *      need not have a second copy installed for the gate;
- *   3. throw. There is no fourth option: a gate that cannot parse cannot report
+ *   4. throw. There is no fifth option: a gate that cannot parse cannot report
  *      a file clean, so it must fail loudly rather than skip.
  *
  * Lazy, because the graded repo is not known until argv is parsed.
@@ -72,6 +74,18 @@ function loadParse(repoRoot) {
     return cachedParse;
   } catch (err) {
     attempts.push(`  - ${__dirname} (this gate's own dependencies): ${err.code || err.message}`);
+  }
+
+  const primaryCopy = primaryCopyOfThisPackage(attempts);
+  if (primaryCopy) {
+    try {
+      cachedParse = createRequire(path.join(primaryCopy, "package.json"))(
+        "@typescript-eslint/typescript-estree",
+      ).parse;
+      return cachedParse;
+    } catch (err) {
+      attempts.push(`  - ${primaryCopy} (the primary checkout's copy of this package): ${err.code || err.message}`);
+    }
   }
 
   if (repoRoot) {
@@ -92,6 +106,55 @@ function loadParse(repoRoot) {
       "\nInstall this gate package's dependencies (npm ci in its directory), " +
       "or add the parser to the repo being checked.",
   );
+}
+
+/**
+ * This gate package's directory in the primary checkout, when this copy sits in
+ * a linked git worktree; otherwise null.
+ *
+ * A worktree is created without `gates/node_modules`, and git hooks are shared
+ * across worktrees — so before `scripts/bootstrap-worktree.sh` has run there,
+ * every TypeScript commit was refused for want of a parser the primary checkout
+ * already has. `gate-python.sh` (#61) falls back to the primary's venv for the same
+ * reason. The parser there is the one this package's lockfile pins, because it
+ * is the same package.
+ *
+ * Read from the worktree's `.git` file rather than asked of `git`: scope policy
+ * is the only git this harness consults, and only through the resolver. A
+ * linked worktree's `.git` is a file reading `gitdir: <admin dir>`, and that
+ * admin dir's `commondir` names the shared `.git`, whose parent is the primary
+ * checkout. Both paths may be relative — to the worktree, and to the admin dir.
+ * A `.git` directory is the primary itself; a `gitdir` with no `commondir` is a
+ * submodule. Neither has a primary to fall back to, and neither is a failure.
+ *
+ * Anything else that goes wrong is recorded in `attempts`, so the refusal says
+ * why this step offered nothing.
+ */
+function primaryCopyOfThisPackage(attempts) {
+  const packageDir = path.dirname(__dirname);
+  let checkout = packageDir;
+  while (!fs.existsSync(path.join(checkout, ".git"))) {
+    const parent = path.dirname(checkout);
+    if (parent === checkout) return null;
+    checkout = parent;
+  }
+  const dotGit = path.join(checkout, ".git");
+  try {
+    if (fs.statSync(dotGit).isDirectory()) return null;
+    const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, "utf8"));
+    if (!pointer) {
+      attempts.push(`  - ${dotGit}: names no gitdir, so the primary checkout is unknown`);
+      return null;
+    }
+    const adminDir = path.resolve(checkout, pointer[1]);
+    const commondirFile = path.join(adminDir, "commondir");
+    if (!fs.existsSync(commondirFile)) return null;
+    const commonDir = path.resolve(adminDir, fs.readFileSync(commondirFile, "utf8").trim());
+    return path.join(path.dirname(commonDir), path.relative(checkout, packageDir));
+  } catch (err) {
+    attempts.push(`  - ${dotGit}: could not find the primary checkout from it (${err.code || err.message})`);
+    return null;
+  }
 }
 
 /**
