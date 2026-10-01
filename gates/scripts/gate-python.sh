@@ -16,6 +16,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VENV="$ROOT/python/.venv"
 
+# A git worktree is created without a venv, and git hooks are shared across
+# worktrees — so fall back to the primary checkout's, whose tools are the same.
+# GIT_DIR is unset because a hook exports it, and it beats -C.
+if [ ! -x "$VENV/bin/python" ]; then
+  common="$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [ -n "$common" ] && [ -x "$(dirname "$common")/python/.venv/bin/python" ]; then
+    VENV="$(dirname "$common")/python/.venv"
+  fi
+fi
+
 if [ -x "$VENV/bin/python" ]; then
   PATH="$VENV/bin:$PATH"
   export PATH

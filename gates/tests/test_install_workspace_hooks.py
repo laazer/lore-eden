@@ -8,6 +8,7 @@ rather than an error anybody sees.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -427,6 +428,33 @@ class TestPythonGatesRunUnderTheVenv:
         _, path = result.stdout.splitlines()
         # shellcheck is found by name, so the venv's bin must lead PATH.
         assert path.split(":")[0] == str(venv_bin)
+
+    def test_a_worktree_without_its_own_venv_uses_the_primary_checkouts(self, tmp_path):
+        """Agent worktrees are created without a venv, and git hooks are shared
+        across worktrees — so without this, every agent commit touching a `.sh`
+        file is refused for a tool the primary checkout already has."""
+        primary = tmp_path / "primary"
+        (primary / "gates" / "scripts").mkdir(parents=True)
+        (primary / "gates" / "scripts" / "gate-python.sh").write_text(
+            self.WRAPPER.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        venv_bin = primary / "python" / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").symlink_to(sys.executable)
+        env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+        for args in (
+            ["init", "-q", "-b", "main"],
+            ["add", "gates"],
+            ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "base"],
+            ["worktree", "add", "-q", str(tmp_path / "wt")],
+        ):
+            subprocess.run(["git", *args], cwd=primary, env=env, check=True, capture_output=True)
+
+        result = self._run(tmp_path / "wt")
+
+        assert result.returncode == 0, result.stderr
+        _, path = result.stdout.splitlines()
+        assert path.split(":")[0] == str(venv_bin.resolve())
 
     def test_without_a_venv_falls_back_to_python3_and_says_so(self, layout):
         result = self._run(layout)
