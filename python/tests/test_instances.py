@@ -357,10 +357,71 @@ def test_stop_raises_eperm_it_cannot_explain_by_its_own_exited_child(
     # Our child still running, or no child of ours at all: EPERM is a real
     # permission failure on the group and must not read as "stopped".
     denied = PermissionError(1, "Operation not permitted")
-    with mock.patch.object(manager_module.os, "killpg", side_effect=denied):
+    with (
+        mock.patch.object(manager_module, "_EXIT_SETTLE_SECONDS", 0.1),
+        mock.patch.object(manager_module.os, "killpg", side_effect=denied),
+    ):
         with pytest.raises(PermissionError):
             manager._terminate(leader.child.pid, instance_id)
     assert leader.child.poll() is None
+
+
+# -- stopping a group whose leader is still exiting ------------------------
+#
+# macOS also answers EPERM while the only member is past SIGTERM but not yet
+# reapable, so ``poll()`` still says it is running. Under load that window is
+# long enough for stop's probe to land in it.
+
+_DENIED = PermissionError(1, "Operation not permitted")
+
+
+def _child_still_exiting(wait_outcome: int | Exception) -> mock.Mock:
+    child = mock.create_autospec(subprocess.Popen, instance=True)
+    child.poll.return_value = None
+    child.wait.side_effect = [wait_outcome]
+    return child
+
+
+def test_signal_group_waits_out_a_leader_still_exiting() -> None:
+    child = _child_still_exiting(0)
+    with mock.patch.object(manager_module.os, "killpg", side_effect=[_DENIED, ProcessLookupError()]):
+        assert manager_module._signal_group(4242, 0, child) is False
+    child.wait.assert_called_once()
+    assert child.wait.call_args.kwargs["timeout"] > 0
+
+
+def test_signal_group_raises_eperm_from_a_leader_that_outlives_the_wait() -> None:
+    child = _child_still_exiting(subprocess.TimeoutExpired("leader", 0))
+    with mock.patch.object(manager_module.os, "killpg", side_effect=_DENIED) as killpg:
+        with pytest.raises(PermissionError):
+            manager_module._signal_group(4242, 0, child)
+    killpg.assert_called_once()
+
+
+def test_signal_group_raises_eperm_that_survives_reaping_the_leader() -> None:
+    child = _child_still_exiting(0)
+    with mock.patch.object(manager_module.os, "killpg", side_effect=[_DENIED, _DENIED]):
+        with pytest.raises(PermissionError):
+            manager_module._signal_group(4242, 0, child)
+
+
+def test_stop_never_reports_eperm_for_a_leader_exiting_on_sigterm(
+    manager: InstanceManager,
+) -> None:
+    # Probing with no pause between polls lands in the exiting window on
+    # most terminations; a handful is enough to fail without the wait.
+    with mock.patch.object(manager_module, "_POLL_SECONDS", 0):
+        for _ in range(10):
+            child = subprocess.Popen(["sleep", "30"], start_new_session=True)  # noqa: S603 - fixed argv
+            manager._children["exiting-leader"] = child
+            try:
+                manager._terminate(child.pid, "exiting-leader")
+                assert child.returncode == -signal.SIGTERM
+            finally:
+                manager._children.pop("exiting-leader", None)
+                if child.poll() is None:
+                    child.kill()
+                    child.wait()
 
 
 # -- HTTP ------------------------------------------------------------------
