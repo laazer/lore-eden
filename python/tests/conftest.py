@@ -24,6 +24,7 @@ from lore_eden.instances import (
 # Imported for its side effect: registering the table on SQLModel.metadata.
 from lore_eden.mcp.servers.models import McpServerRecord  # noqa: F401
 from lore_eden.store.sql import enforce_sqlite_foreign_keys
+from lore_eden.testing import pytest_profile
 from sqlmodel import Session, SQLModel, create_engine
 
 # SQLite ignores foreign keys unless asked, per connection. The library's own
@@ -32,6 +33,11 @@ from sqlmodel import Session, SQLModel, create_engine
 # `syntax error at or near "PRAGMA"` in the test harness as well as in the
 # library. Two copies of a rule is two places for it to be wrong.
 enforce_sqlite_foreign_keys()
+
+
+def pytest_configure(config):
+    """Profile this run when `LORE_EDEN_PROFILE` asks for it; otherwise do nothing."""
+    pytest_profile.register(config, suite="python")
 
 
 @pytest.fixture
