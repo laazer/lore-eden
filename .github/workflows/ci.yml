@@ -102,7 +102,20 @@ jobs:
           # so a broken service container fails the job instead of quietly
           # halving what it covers.
           LORE_EDEN_REQUIRE_POSTGRES: "1"
+          # Profiling rides on the run that was happening anyway. A second,
+          # profiled run would double the job to learn what one run already knows.
+          LORE_EDEN_PROFILE: ${{ github.workspace }}/.profile/python-py${{ matrix.python }}.json
         run: python -m pytest -q
+
+      - name: Upload the suite's profile
+        # `always()`: a run that failed part way is exactly when the timings of
+        # what did run are worth having.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-python-py${{ matrix.python }}
+          path: .profile/python-py${{ matrix.python }}.json
+          if-no-files-found: error
 
   # Consumes this repo's own reusable workflow. Dogfooding rather than
   # illustration: a reusable workflow nothing calls is a template nobody has

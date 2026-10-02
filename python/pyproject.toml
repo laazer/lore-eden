@@ -74,6 +74,9 @@ security = [
 ]
 dev = [
     "pytest>=8.3.0",
+    # The profiler's xdist path is tested end to end; without xdist that test
+    # would skip, and a skipped test proves nothing about the run it skips.
+    "pytest-xdist>=3.5",
     # The shell gate drives it. A wheel, so no system package and no brew.
     "shellcheck-py>=0.10.0",
     # tomllib is 3.11+, and this package floors at 3.10. The packaging tests

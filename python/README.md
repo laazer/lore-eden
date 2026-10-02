@@ -102,6 +102,27 @@ The health tests run a real MCP server over a real subprocess — one built from
 this package's own `McpServer`. Both halves are exercised against each other
 rather than against a fixture that agrees with itself.
 
+### Where the time goes
+
+`lore_eden.testing.pytest_profile` records per-test setup, call and teardown
+seconds as named metrics, and prints the slowest. It is inert until
+`LORE_EDEN_PROFILE` names an output file; `LORE_EDEN_PROFILE_TOP` sets how many
+rows print (default 15). A suite opts in from its `conftest.py`:
+
+```python
+from lore_eden.testing import pytest_profile
+
+def pytest_configure(config):
+    pytest_profile.register(config, suite="server")
+```
+
+```bash
+LORE_EDEN_PROFILE=.profile/python.json python -m pytest -q
+```
+
+It works under pytest-xdist: only the controller writes, so `-n auto` still
+yields one file covering every test.
+
 
 ## Driving a workflow
 

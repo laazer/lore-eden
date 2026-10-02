@@ -19,3 +19,6 @@ build/
 htmlcov/
 .coverage
 coverage.xml
+
+# Test profiles, written on request by lore_eden.testing.pytest_profile
+.profile/
