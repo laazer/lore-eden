@@ -58,6 +58,9 @@ HEALTH_TIMEOUT_SECONDS = 5.0
 STOP_GRACE_SECONDS = 10.0
 
 _POLL_SECONDS = 0.25
+#: How long a signal answered with EPERM waits for our own child to finish
+#: exiting. Milliseconds normally; seconds only on a badly overloaded host.
+_EXIT_SETTLE_SECONDS = 2.0
 
 
 class InstanceNotFoundError(KeyError):
@@ -339,21 +342,33 @@ def _signal_group(pgid: int, sig: int, child: subprocess.Popen[bytes] | None) ->
     """Send ``sig`` to the group; ``False`` when it has no live member left.
 
     macOS answers ``EPERM``, not ``ESRCH``, for a group whose only member is
-    an exited leader nobody has reaped yet — and the leader can exit between
-    the caller's ``poll()`` and this call. That answer is ours to interpret
-    only when the leader is our own child: reap it, then ask again, so what
-    decides is the group's real membership. An ``EPERM`` on any other group,
-    or one that survives the reap, is a real permission failure and raises.
+    a leader that has exited — whether it is an unreaped zombie or still
+    tearing down after SIGTERM, before ``poll()`` can see it go. A loaded
+    host stretches the second window long enough for a stop's probe to land
+    in it. That answer is ours to interpret only when the leader is our own
+    child: wait briefly for it to finish exiting and reap it, then ask again,
+    so what decides is the group's real membership. An ``EPERM`` on any
+    other group, from a child that outlives the wait, or one that survives
+    the reap, is a real permission failure and raises.
     """
     try:
         os.killpg(pgid, sig)
     except ProcessLookupError:
         return False
     except PermissionError:
-        if child is None or child.poll() is None:
+        if child is None or not _reap(child):
             raise
         try:
             os.killpg(pgid, sig)
         except ProcessLookupError:
             return False
+    return True
+
+
+def _reap(child: subprocess.Popen[bytes]) -> bool:
+    """Reap ``child``, giving one still exiting time to finish; ``False`` if it does not."""
+    try:
+        child.wait(timeout=_EXIT_SETTLE_SECONDS)
+    except subprocess.TimeoutExpired:
+        return False
     return True
