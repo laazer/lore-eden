@@ -7,6 +7,7 @@ before listening, a group that ignores SIGTERM, a zombie that still answers
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import select
 import signal
@@ -43,6 +44,7 @@ from lore_eden.instances import (
 )
 from lore_eden.instances import __main__ as cli
 from lore_eden.instances import manager as manager_module
+from lore_eden.instances.ports import instance_url
 from lore_eden.instances.registry import derive_state
 
 
@@ -69,6 +71,21 @@ def test_allocate_port_skips_claimed_and_bound_ports() -> None:
         bound = held.getsockname()[1]
         chosen = allocate_port("127.0.0.1", port_range=(bound, bound + 5), claimed={bound + 1})
     assert chosen == bound + 2
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("127.0.0.1", "http://127.0.0.1:8000"),
+        ("localhost", "http://localhost:8000"),
+        ("0.0.0.0", "http://127.0.0.1:8000"),
+        ("::", "http://[::1]:8000"),
+        ("::1", "http://[::1]:8000"),
+        ("192.168.1.5", "http://192.168.1.5:8000"),
+    ],
+)
+def test_instance_url_advertises_a_connectable_host(host: str, expected: str) -> None:
+    assert instance_url(host, 8000) == expected
 
 
 def test_allocate_port_raises_when_the_range_is_exhausted() -> None:
@@ -137,6 +154,16 @@ def test_register_self_is_found_as_main_and_released(registry: FileInstanceRegis
     assert found is not None and found.url == "http://127.0.0.1:8000" and not found.managed
     handle.release()
     assert registry.find_main("demo") is None
+
+
+def test_register_self_on_a_wildcard_advertises_loopback(registry: FileInstanceRegistry) -> None:
+    handle = register_self(registry, project="demo", name="main", kind=InstanceKind.SERVER,
+                           host="0.0.0.0", port=8000)
+    assert handle is not None
+    found = registry.find_main("demo")
+    assert found is not None
+    assert (found.host, found.url) == ("0.0.0.0", "http://127.0.0.1:8000")
+    handle.release()
 
 
 def test_register_self_defers_to_the_launcher_record(registry: FileInstanceRegistry) -> None:
@@ -211,6 +238,21 @@ def test_launch_becomes_ready_and_stop_frees_everything(manager: InstanceManager
 def test_two_launches_get_different_ports(manager: InstanceManager) -> None:
     first, second = launch(manager), launch(manager)
     assert first.port != second.port
+
+
+def test_a_launch_bound_to_a_wildcard_advertises_and_probes_loopback(manager: InstanceManager) -> None:
+    api = manager.templates.get("api")
+    wildcard = mock.patch.object(
+        api, "build",
+        side_effect=lambda request, ctx, build=api.build: dataclasses.replace(
+            build(request, ctx), host="0.0.0.0"
+        ),
+    )
+    with wildcard:
+        view = launch(manager)
+    assert view.host == "0.0.0.0"
+    assert view.url == f"http://127.0.0.1:{view.port}"
+    assert manager.wait_ready(view.id).state == InstanceState.READY
 
 
 def test_a_crash_before_ready_is_exited_with_its_code(manager: InstanceManager) -> None:

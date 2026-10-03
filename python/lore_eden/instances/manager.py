@@ -38,7 +38,7 @@ from lore_eden.instances.models import (
     InstanceState,
     InstanceView,
 )
-from lore_eden.instances.ports import allocate_port
+from lore_eden.instances.ports import allocate_port, connectable_host, instance_url
 from lore_eden.instances.registry import (
     ENV_INSTANCE_ID,
     ENV_REGISTRY_DIR,
@@ -90,7 +90,7 @@ def probe(record: InstanceRecord, *, timeout: float) -> InstanceHealth:
 
     if record.health_path is None:
         try:
-            with socket.create_connection((record.host, record.port), timeout=timeout):
+            with socket.create_connection((connectable_host(record.host), record.port), timeout=timeout):
                 return InstanceHealth(ok=True, latency_ms=elapsed())
         except OSError as exc:
             return InstanceHealth(ok=False, latency_ms=elapsed(), error=str(exc))
@@ -156,7 +156,7 @@ class InstanceManager:
             port = spec.port or allocate_port(
                 spec.host, port_range=spec.port_range, claimed=self.registry.claimed_ports()
             )
-            url = f"http://{spec.host}:{port}"
+            url = instance_url(spec.host, port)
             values = {
                 "host": spec.host,
                 "port": str(port),
