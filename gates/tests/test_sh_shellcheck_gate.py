@@ -18,18 +18,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lore_eden_gates
 
 from sh_shellcheck_check import FAILING_LEVELS, run_shellcheck  # noqa: E402
 
-# `shellcheck-py` installs the binary into the same bin directory as the
-# interpreter running these tests, which is not on PATH when pytest is invoked
-# as `python/.venv/bin/python -m pytest`. Without this every test here skips —
-# and nine silent skips look exactly like nine passes in a summary line, which
-# is the failure this whole library is about.
-_BIN = Path(sys.executable).parent
-if shutil.which("shellcheck") is None and (_BIN / "shellcheck").exists():
-    os.environ["PATH"] = f"{_BIN}{os.pathsep}{os.environ.get('PATH', '')}"
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("shellcheck") is None, reason="shellcheck not installed"
-)
+def _find_shellcheck() -> str | None:
+    """shellcheck's path, whether or not PATH knows about it.
+
+    `shellcheck-py` installs the binary into the same bin directory as the
+    interpreter running these tests, which is not on PATH when pytest is invoked
+    as `python/.venv/bin/python -m pytest`. If availability were decided by
+    `shutil.which` alone every test here would skip — and nine silent skips look
+    exactly like nine passes in a summary line, which is the failure this whole
+    library is about.
+    """
+    found = shutil.which("shellcheck")
+    if found:
+        return found
+    candidate = Path(sys.executable).parent / "shellcheck"
+    return str(candidate) if candidate.exists() else None
+
+
+_SHELLCHECK = _find_shellcheck()
+
+pytestmark = pytest.mark.skipif(_SHELLCHECK is None, reason="shellcheck not installed")
+
+
+@pytest.fixture(autouse=True)
+def shellcheck_on_path(monkeypatch):
+    """Put shellcheck on PATH for this module's tests, and only for them.
+
+    The gate runs as a subprocess against a throwaway repository, so it inherits
+    PATH and cannot discover a virtualenv belonging to *this* checkout. It
+    therefore has to be told where shellcheck is.
+
+    Through `monkeypatch` rather than by assigning `os.environ` at import, which
+    is what this did before. That assignment never came back off, so every test
+    ordered after this module ran with a venv's `bin` prepended to PATH —
+    including tests asserting what happens when a tool is *not* on PATH, which
+    then passed or failed depending on collection order rather than on the code.
+    """
+    monkeypatch.setenv("PATH", f"{Path(_SHELLCHECK).parent}{os.pathsep}{os.environ.get('PATH', '')}")
 
 UNQUOTED = "#!/bin/sh\nrm $UNQUOTED\n"
 CLEAN = '#!/bin/sh\nset -eu\ntarget="${1:-}"\nprintf "%s\\n" "$target"\n'
