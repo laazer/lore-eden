@@ -60,6 +60,19 @@ Supporting, not installed as hooks:
 | `ts_waivers.cjs` | The marker-with-a-reason waiver contract the TypeScript gates share |
 | `select_pytest_targets.py` | Import-graph test selection for pre-push, biased hard toward over-running |
 
+## Profiling this suite
+
+This suite can be profiled like the python one. It reaches
+`lore_eden.testing.pytest_profile` by path rather than by install, so it stays
+dependency-free:
+
+```
+cd gates && LORE_EDEN_PROFILE=../.profile/gates.json python -m pytest -q
+```
+
+A requested profile that cannot be produced fails the run rather than passing
+quietly. Unset, the hook does nothing and imports nothing.
+
 ## Scopes
 
 Every gate takes `--repo PATH` and `--scope staged|worktree|branch`.
