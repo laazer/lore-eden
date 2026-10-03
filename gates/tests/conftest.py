@@ -141,3 +141,29 @@ def unborn_repo(tmp_path: Path) -> Repo:
     made.write("pyproject.toml", "[project]\nname='x'\n")
     made.write("myapp/__init__.py", "")
     return made
+
+
+# The profiler lives in `lore_eden.testing`, which this suite reaches by path
+# rather than by install. `gates` is deliberately dependency-free and its CI job
+# installs no part of the `lore_eden` package, so importing it has to cost
+# nothing: `lore_eden/__init__.py` is a docstring and a version, and
+# `pytest_profile` imports only the standard library. A copy under `gates/`
+# would have been the other option, and two copies of a schema is two places
+# for it to drift.
+_PYTHON_SRC = Path(__file__).resolve().parents[2] / "python"
+
+
+def pytest_configure(config):
+    """Profile this run when `LORE_EDEN_PROFILE` asks for it; otherwise do nothing.
+
+    A requested profile that cannot be produced raises rather than passing
+    quietly. Reporting nothing where a profile was asked for is the same shape
+    of failure as a gate that examined no files and called it clean.
+    """
+    if not os.environ.get("LORE_EDEN_PROFILE", "").strip():
+        return
+    if str(_PYTHON_SRC) not in sys.path:
+        sys.path.insert(0, str(_PYTHON_SRC))
+    from lore_eden.testing import pytest_profile
+
+    pytest_profile.register(config, suite="gates")
