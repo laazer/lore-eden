@@ -127,10 +127,21 @@ class InstanceManager:
         label = request.name or info.name
         instance_id = slugify(f"{label}-{secrets.token_hex(3)}")
         instance_dir = self.registry.data_root / instance_id
-        instance_dir.mkdir(parents=True)
+        try:
+            instance_dir.mkdir(parents=True)
+        except OSError as exc:
+            raise InstanceLaunchError(f"could not create {instance_dir} for {label}: {exc}") from exc
         try:
             spec = template.build(request, LaunchContext(instance_id, instance_dir, self.registry))
             return self._start(instance_id, instance_dir, request.template, spec)
+        except OSError as exc:
+            shutil.rmtree(instance_dir, ignore_errors=True)
+            # Taking the registry lock, opening the log, building the spec: any
+            # of them can fail with the host out of descriptors or processes.
+            # Unwrapped, that OSError escaped every caller's EXPECTED_FAILURES
+            # and reached an MCP client as bare "[Errno 35] ..." text, with no
+            # error_kind to act on.
+            raise InstanceLaunchError(f"could not launch {label}: {exc}") from exc
         except BaseException:
             # Nothing was registered, so nothing will ever show this directory
             # to anyone; it is ours to remove.
