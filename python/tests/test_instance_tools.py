@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import time
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -121,3 +123,31 @@ def test_the_self_registered_main_cannot_be_stopped(
     result = call(tools, "stop_instance", instance_id=main.record.id)
     assert result["error_kind"] == "not_managed"
     main.release()
+
+
+_OUT_OF_DESCRIPTORS = OSError(errno.EMFILE, "Too many open files")
+
+
+@pytest.mark.parametrize(
+    "fail",
+    [
+        # Before the process starts, under the registry lock.
+        lambda manager: mock.patch.object(manager.registry, "lock", side_effect=_OUT_OF_DESCRIPTORS),
+        # Before anything exists at all.
+        lambda manager: mock.patch.object(Path, "mkdir", side_effect=_OUT_OF_DESCRIPTORS),
+    ],
+    ids=["registry-lock", "instance-dir"],
+)
+def test_an_os_error_during_launch_is_a_classified_failure(
+    tools: ToolRegistry, instance_manager: InstanceManager, fail
+) -> None:
+    """An OSError outside the one Popen call escaped EXPECTED_FAILURES, so an
+    MCP client got bare "[Errno 24] ..." text with no error_kind. It is a
+    launch failure like any other, and leaves nothing behind."""
+    with fail(instance_manager):
+        result = call(tools, "launch_instance", template="api")
+    assert result["ok"] is False
+    assert result["error_kind"] == "launch_failed"
+    assert "Too many open files" in result["error"]
+    assert instance_manager.registry.scan().records == []
+    assert list(instance_manager.registry.data_root.iterdir()) == []
