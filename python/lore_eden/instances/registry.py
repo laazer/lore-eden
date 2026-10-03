@@ -32,6 +32,7 @@ from lore_eden.instances.models import (
     InstanceView,
     UnreadableRecord,
 )
+from lore_eden.instances.ports import instance_url
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +246,7 @@ def register_self(
         managed=False,
         host=host,
         port=port,
-        url=f"http://{host}:{port}",
+        url=instance_url(host, port),
         health_path=health_path,
         started_at=now,
         # It is serving requests by the time it can register itself.

@@ -13,10 +13,41 @@ catches what the registry cannot know about: a server someone started by hand.
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 from collections.abc import Iterable
 
 DEFAULT_PORT_RANGE = (8100, 8999)
+
+
+#: Bind addresses meaning "every interface". Fine to listen on, but not a
+#: place anyone can connect to: browsers refuse to navigate to 0.0.0.0, and an
+#: embed policy that allows only loopback rightly refuses it too.
+_WILDCARD_TO_LOOPBACK = {"0.0.0.0": "127.0.0.1", "::": "::1"}
+
+
+def connectable_host(host: str) -> str:
+    """The address a client on this machine should connect to for ``host``.
+
+    A wildcard bind is reached on loopback; any other host already names a
+    real address and is returned unchanged.
+    """
+    return _WILDCARD_TO_LOOPBACK.get(host, host)
+
+
+def instance_url(host: str, port: int) -> str:
+    """The URL to advertise for a server bound to ``host``:``port``.
+
+    The bind host is kept in the record as ``host``; this is what a person or
+    tool should open. IPv6 literals are bracketed, as a URL requires.
+    """
+    target = connectable_host(host)
+    try:
+        if ipaddress.ip_address(target).version == 6:
+            target = f"[{target}]"
+    except ValueError:  # silent-ok: a hostname, not an IP literal; used as given
+        pass
+    return f"http://{target}:{port}"
 
 
 class NoFreePortError(RuntimeError):
