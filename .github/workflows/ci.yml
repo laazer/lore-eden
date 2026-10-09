@@ -258,7 +258,8 @@ jobs:
           for gate in \
             ts_organization_check.cjs \
             ts_no_silent_failures_check.cjs \
-            ts_ux_states_check.cjs
+            ts_ux_states_check.cjs \
+            css_motion_check.cjs
           do
             echo "--- $gate"
             node "gates/lore_eden_gates/$gate" --repo "$PWD" --scope branch --base "$base"

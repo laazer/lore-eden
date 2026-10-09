@@ -433,6 +433,20 @@ color: #6fae8f;          /* css-org: allow-colour (matching a screenshot) */
 z-index: 9 !important;   /* css-org: allow-important (react-datepicker) */
 ```
 
+`css_motion_check` grades the same files for motion. It is ported from
+loregarden's `ts_motion_check.cjs`, so a repo running these gates holds the line
+loregarden does:
+
+| rule | what it catches |
+|---|---|
+| layout property | a transition or keyframe on `width`, `top`, `margin`, …, or `transition: all`. Each frame relays out the page; animate `transform` and `opacity`. |
+| hardcoded duration | a UI duration of 400ms or less where the repo defines `--t-fast` (in `css_token_source` or the root `index.css`). Use the token. Longer ambient loops are exempt. |
+| reduced motion | motion in a file when neither the root stylesheet (a `prefers-reduced-motion` rule over `*`) nor the file itself has a reduced-motion rule. |
+
+Waive with `motion-ok:` and a reason, on the line or in the comment above it.
+`!important` inside a `prefers-reduced-motion` block needs no waiver from
+`css_organization_check`, because a reader's setting has to beat inline styles.
+
 Point the token rules at whatever file defines the repo's custom properties — a
 `.css` with `--name: value` declarations, or a TS/JS module carrying
 `css`/`value` pairs:

@@ -68,7 +68,7 @@ GATED_SUFFIXES: dict[str, str] = {
     ".tsx": "ts_organization_check, ts_no_silent_failures_check, "
     "ts_ux_states_check",
     ".cjs": "ts_organization_check, ts_no_silent_failures_check",
-    ".css": "css_organization_check",
+    ".css": "css_organization_check, css_motion_check",
     ".sh": "sh_shellcheck_check",
     ".json": "data_format_check",
     ".yml": "data_format_check",

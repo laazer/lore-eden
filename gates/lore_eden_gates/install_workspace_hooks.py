@@ -140,6 +140,16 @@ MANAGED_GATES: tuple[ManagedGate, ...] = (
         "css_organization_check.py",
         CSS_GLOB,
     ),
+    # Motion in those stylesheets: layout properties animated every frame,
+    # hardcoded durations where motion tokens exist, and motion with no
+    # reduced-motion rule. Ported from loregarden's ts_motion_check.cjs.
+    ManagedGate(
+        f"{COMMAND_PREFIX}-css-motion",
+        "CSS motion",
+        "node",
+        "css_motion_check.cjs",
+        CSS_GLOB,
+    ),
     # Shell scripts, the other file type nothing graded — including, in this
     # repo, the two scripts git itself executes on every commit and push.
     # shellcheck arrives as a pip wheel, so this needs no system package.
