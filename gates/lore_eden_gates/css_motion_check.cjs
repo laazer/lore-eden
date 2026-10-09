@@ -26,7 +26,13 @@
 const fs = require("fs");
 const path = require("path");
 
-const { isTestFile, readSource, runGate, tsSourceRoot } = require("./ts_gate_harness.cjs");
+const {
+  UnexaminableError,
+  isTestFile,
+  readSource,
+  runGate,
+  tsSourceRoot,
+} = require("./ts_gate_harness.cjs");
 const { waiverContract } = require("./ts_waivers.cjs");
 
 const ALLOW_MARKER = "motion-ok:";
@@ -42,16 +48,17 @@ const TIME = /^(\d*\.?\d+)(ms|s)$/i;
 const TIME_EXPRESSION = /^(?:var\(--t-|calc\()/i;
 const UI_DURATION_CEILING_MS = 400;
 
-/** postcss, from this package's own dependencies; absent, the gate cannot examine CSS. */
+/**
+ * postcss, from this package's own dependencies. Absent, the gate examined
+ * nothing: runGate reports an UnexaminableError as a failure, never a pass.
+ */
 function postcss() {
   try {
     return require("postcss");
   } catch (err) {
-    console.error(
-      `css-motion: cannot load postcss (${err.message}); run \`npm ci\` in lore-eden's gates/ ` +
-        "— this gate examined nothing and cannot report anything clean",
+    throw new UnexaminableError(
+      `cannot load postcss (${err.message}); run \`npm ci\` in lore-eden's gates/`,
     );
-    process.exit(1);
   }
 }
 
