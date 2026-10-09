@@ -128,6 +128,17 @@ const shadowsSpecs = define({
 });
 
 // ── Motion ────────────────────────────────────────────────────────────
+//
+// Motion explains a change of state; it never decorates. Durations by job:
+//   --t-fast  hover, press, tooltip
+//   --t-med   toggle, dropdown, toast entering
+//   --t-slow  modal or panel entering (an operator UI goes no slower)
+// An exit runs one step faster than its entrance (a modal leaves at --t-med,
+// a toast at --t-fast): the reader has already seen what is going away.
+// A list staggers by --t-stagger per item and finishes within about 500ms.
+// Animate transform and opacity only, never a layout property. Under
+// `prefers-reduced-motion: reduce`, slides and springs become a short fade or
+// a held frame and loops stop.
 
 const motionSpecs = define({
   easeOut: { css: "--ease-out", value: "cubic-bezier(.4, 0, .2, 1)" },
@@ -135,6 +146,7 @@ const motionSpecs = define({
   tFast: { css: "--t-fast", value: ".12s" },
   tMed: { css: "--t-med", value: ".2s" },
   tSlow: { css: "--t-slow", value: ".3s" },
+  tStagger: { css: "--t-stagger", value: ".04s" },
 });
 
 // ── The whole table ────────────────────────────────────────────────────────

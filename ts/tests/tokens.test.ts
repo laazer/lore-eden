@@ -30,7 +30,7 @@ const keys = Object.keys(tokenSpecs) as TokenKey[];
 
 describe('the table', () => {
   it('carries every token exactly once', () => {
-    expect(keys.length).toBe(56);
+    expect(keys.length).toBe(57);
     expect(new Set(keys).size).toBe(keys.length);
   });
 

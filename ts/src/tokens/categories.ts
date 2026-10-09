@@ -49,4 +49,4 @@ export const typography = valuesOf(
 export const spacing = valuesOf(pick('sp1', 'sp2', 'sp3', 'sp4', 'sp5', 'sp6', 'sp7'));
 export const radius = valuesOf(pick('rSm', 'rMd', 'rLg', 'rXl', 'rPill'));
 export const shadows = valuesOf(pick('shCard', 'shFloat', 'glowAccent'));
-export const motion = valuesOf(pick('easeOut', 'easeSpring', 'tFast', 'tMed', 'tSlow'));
+export const motion = valuesOf(pick('easeOut', 'easeSpring', 'tFast', 'tMed', 'tSlow', 'tStagger'));
