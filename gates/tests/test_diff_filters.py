@@ -115,14 +115,15 @@ class TestTheyAreActuallyInstalled:
         assert "lore-eden-py-complexity" in MANAGED_COMMAND_NAMES
         assert "lore-eden-py-statements" in MANAGED_COMMAND_NAMES
 
-    def test_the_managed_set_is_twelve(self) -> None:
+    def test_the_managed_set_is_thirteen(self) -> None:
         # Pinned so a gate cannot be dropped from the installer without a test
         # saying so — which is how these two came to be unwired. Ten since the
         # CSS, shell and data-format gates: stylesheets, shell scripts and
         # configuration matched no glob, so a commit touching only those ran
         # the whole stage over nothing and passed. Eleven since the TypeScript
-        # silent-failure gate, twelve since the UX-states gate.
-        assert len(MANAGED_COMMAND_NAMES) == 12
+        # silent-failure gate, twelve since the UX-states gate, thirteen since
+        # the CSS motion gate.
+        assert len(MANAGED_COMMAND_NAMES) == 13
 
     def test_ci_runs_every_managed_gate(self) -> None:
         """CI's self-grade job must name every gate the installer installs.
