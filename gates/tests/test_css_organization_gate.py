@@ -195,6 +195,41 @@ class TestImportant:
         )
         assert findings(repo, "app/x.css") == []
 
+    def test_a_reduced_motion_override_needs_no_waiver(self, repo):
+        # The reader's own setting has to beat every author rule and inline
+        # style; no selector can, so this is what !important is for.
+        css_repo(repo)
+        repo.write(
+            "app/x.css",
+            "@media (prefers-reduced-motion: reduce) {\n"
+            "  *,\n"
+            "  *::before {\n"
+            "    animation-duration: 0.01ms !important;\n"
+            "    transition-duration: 0.01ms !important;\n"
+            "  }\n"
+            "}\n",
+        )
+        assert findings(repo, "app/x.css") == []
+
+    def test_important_after_the_reduced_motion_block_closes_is_flagged(self, repo):
+        css_repo(repo)
+        repo.write(
+            "app/x.css",
+            "@media (prefers-reduced-motion: reduce) { .a { animation: none !important; } }\n"
+            ".b { z-index: 9 !important; }\n",
+        )
+        found = findings(repo, "app/x.css")
+        assert len(found) == 1 and ":2:" in found[0], found
+
+    def test_another_media_query_is_no_exemption(self, repo):
+        css_repo(repo)
+        repo.write(
+            "app/x.css",
+            "@media (max-width: 600px) {\n  .a { z-index: 9 !important; }\n}\n",
+        )
+        found = findings(repo, "app/x.css")
+        assert len(found) == 1 and "specificity" in found[0], found
+
 
 class TestFileLength:
     def test_a_long_file_that_is_growing_is_flagged(self, repo):

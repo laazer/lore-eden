@@ -38,6 +38,10 @@ rather than because it sounded prudent:
     appear in a ``package.json`` dependency list and must not be one of ours.
     A waiver that cannot be checked is a comment.
 
+    The other honest use needs no waiver: inside ``@media
+    (prefers-reduced-motion: …)``, where the reader's own setting has to beat
+    every author rule and every inline ``style``, and no selector can.
+
 ``orphan``
     A stylesheet nothing imports. Dead CSS reads as live CSS — it is the file
     people edit for an hour before discovering the page never loaded it.
@@ -104,6 +108,8 @@ _HEX_RE = re.compile(r"#([0-9a-fA-F]{3,8})\b")
 _RGB_RE = re.compile(r"\brgba?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*[,)]")
 _IMPORTANT_RE = re.compile(r"!\s*important\b")
 _WAIVER_ARG_RE = re.compile(r"css-org: allow-important\s*\(\s*([^)]+?)\s*\)")
+#: An at-rule that applies the reader's own preference rather than an author's.
+_READER_PREFERENCE_RE = re.compile(r"@media\b[^{]*prefers-reduced-motion", re.I)
 #: `import './x.css'`, `@import "./x.css"`, `from "./x.css"` — any mention of the
 #: file's name in a source file counts. Deliberately loose: this rule is about a
 #: stylesheet nothing knows about, and a false negative beats accusing a live
@@ -268,16 +274,49 @@ def duplicate_colour_findings(
     return findings
 
 
+def reader_preference_lines(code: list[str]) -> frozenset[int]:
+    """Line numbers inside an ``@media (prefers-reduced-motion: …)`` block.
+
+    Brace depth over comment-stripped code, so a nested rule counts and a block
+    that closes mid-line stops counting there.
+    """
+    inside: set[int] = set()
+    stack: list[bool] = []
+    header = ""
+    for lineno, line in enumerate(code, start=1):
+        for ch in line:
+            if ch == "{":
+                stack.append(bool(stack and stack[-1]) or bool(_READER_PREFERENCE_RE.search(header)))
+                header = ""
+            elif ch == "}":
+                if stack:
+                    stack.pop()
+                header = ""
+            elif ch == ";":
+                header = ""
+            else:
+                header += ch
+            if stack and stack[-1]:
+                inside.add(lineno)
+        header += "\n"
+    return frozenset(inside)
+
+
 def important_findings(lines: list[str], code: list[str], third_party: frozenset[str]) -> list[Finding]:
     """``!important``, unless the waiver names a package we do not control.
 
     The claim is checked rather than taken: an unwaived one is a finding, and so
     is a waiver naming something that is not a dependency, or that is ours. A
     waiver nobody verifies is how ``!important`` becomes the house style.
+
+    Inside a reduced-motion block it is no finding at all: there the reader's
+    setting must win over every rule and inline style, which is what
+    ``!important`` is for.
     """
     findings = []
+    preference = reader_preference_lines(code)
     for lineno, line in enumerate(code, start=1):
-        if not _IMPORTANT_RE.search(line):
+        if not _IMPORTANT_RE.search(line) or lineno in preference:
             continue
         waiver = None
         for index in (lineno - 1, lineno - 2):
