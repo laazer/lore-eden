@@ -217,7 +217,8 @@ and a person at the UI act on the same instances:
 from lore_eden.instances import register_instance_tools
 
 register_instance_tools(registry, lambda: manager, prefix="shop_")
-# shop_list_instances, shop_launch_instance, shop_instance_status, shop_stop_instance
+# shop_list_instances, shop_launch_instance, shop_instance_status,
+# shop_restart_instance, shop_stop_instance
 ```
 
 A failure comes back as `ok: false` with an `error_kind` and `retryable`, not
@@ -226,6 +227,14 @@ port free yet". Launch never blocks the agent's turn for long: `wait_seconds`
 is capped at 30, and after that the agent polls `instance_status`. A host with
 its own dispatch table takes the `(definition, handler)` pairs from
 `instance_tools()` and registers them itself.
+
+`restart_instance` runs a launched instance's command again in place, with the
+same id, port and URL, so a client pointed at it keeps working. A launched
+server runs no reloader, so a restart is how it picks up a code change. The
+listing keeps an agent's turn small: a choice list longer than 12 (a worktree
+picker, say) comes back as a count and three examples, and
+`list_instances(template=...)` returns every choice. The HTTP router always
+returns full lists, because a person's picker needs them.
 
 The UI half is `InstancesPanel` in `@lore-eden/ui`, over `createInstancesClient`
 and `useInstances` for a host that wants its own layout:

@@ -12,9 +12,12 @@ from unittest import mock
 import pytest
 from lore_eden.instances import (
     INSTANCE_TOOL_NAMES,
+    CommandTemplate,
     FileInstanceRegistry,
     InstanceKind,
     InstanceManager,
+    TemplateCatalog,
+    TemplateParam,
     register_instance_tools,
     register_self,
 )
@@ -151,3 +154,76 @@ def test_an_os_error_during_launch_is_a_classified_failure(
     assert "Too many open files" in result["error"]
     assert instance_manager.registry.scan().records == []
     assert list(instance_manager.registry.data_root.iterdir()) == []
+
+
+# -- listing size ------------------------------------------------------------
+
+_MANY = [f"/repo/.claude/worktrees/tree-{n:03}" for n in range(40)]
+
+
+@pytest.fixture
+def wide_tools(instance_registry: FileInstanceRegistry, tmp_path: Path) -> ToolRegistry:
+    """Two templates offering 40 worktrees each, like a busy repository."""
+    catalog = TemplateCatalog()
+    for name in ("client", "server"):
+        catalog.register(
+            CommandTemplate(
+                project="demo", name=name, kind=InstanceKind.SERVER, command=["true"], cwd=str(tmp_path),
+                params=[
+                    TemplateParam(key="worktree", label="Worktree", required=True, default=_MANY[7],
+                                  choices=_MANY),
+                    TemplateParam(key="db", label="Database", default="snapshot", choices=["snapshot", "fresh"]),
+                ],
+            )
+        )
+    registry = ToolRegistry()
+    register_instance_tools(registry, lambda: InstanceManager(instance_registry, catalog), prefix="demo_")
+    return registry
+
+
+def test_a_long_choice_list_is_summarised_in_the_listing(wide_tools: ToolRegistry) -> None:
+    listing = call(wide_tools, "list_instances")
+    assert [t["name"] for t in listing["templates"]] == ["client", "server"]
+    for template in listing["templates"]:
+        worktree, db = template["params"]
+        assert "choices" not in worktree
+        assert worktree["choice_count"] == 40
+        assert worktree["choice_examples"] == [_MANY[7], _MANY[0], _MANY[1]]
+        assert f'template="{template["name"]}"' in worktree["all_choices"]
+        # A short list is still given whole.
+        assert db["choices"] == ["snapshot", "fresh"]
+    raw = wide_tools.call("demo_list_instances", {}, context=None)
+    assert all(path not in raw for path in _MANY[8:])
+
+
+def test_naming_a_template_returns_every_choice(wide_tools: ToolRegistry) -> None:
+    listing = call(wide_tools, "list_instances", template="server")
+    [template] = listing["templates"]
+    assert template["name"] == "server"
+    assert template["params"][0]["choices"] == _MANY
+    assert "choice_count" not in template["params"][0]
+
+
+def test_naming_an_unknown_template_is_classified(wide_tools: ToolRegistry) -> None:
+    result = call(wide_tools, "list_instances", template="nope")
+    assert (result["ok"], result["error_kind"]) == (False, "unknown_template")
+
+
+# -- restart -------------------------------------------------------------------
+
+
+def test_restart_keeps_the_url_and_comes_back_ready(tools: ToolRegistry) -> None:
+    launched = call(tools, "launch_instance", template="api", wait_seconds=15)["instance"]
+    restarted = call(tools, "restart_instance", instance_id=launched["id"], wait_seconds=15)
+    assert restarted["ok"], restarted
+    assert (restarted["instance"]["id"], restarted["instance"]["url"]) == (launched["id"], launched["url"])
+    assert restarted["instance"]["state"] == "ready"
+
+
+def test_restart_failures_are_classified(tools: ToolRegistry, instance_registry: FileInstanceRegistry) -> None:
+    assert call(tools, "restart_instance", instance_id="missing")["error_kind"] == "not_found"
+    main = register_self(instance_registry, project="demo", name="main", kind=InstanceKind.SERVER,
+                         host="127.0.0.1", port=8000)
+    assert main is not None
+    assert call(tools, "restart_instance", instance_id=main.record.id)["error_kind"] == "not_managed"
+    main.release()

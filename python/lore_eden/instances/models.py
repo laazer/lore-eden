@@ -83,6 +83,11 @@ class InstanceRecord(BaseModel):
     ready_timeout_seconds: float = 120.0
     cwd: str | None = None
     command: list[str] = Field(default_factory=list)
+    #: The template's own environment, placeholders filled, as launched — not
+    #: the inherited one. Restart needs it to run the same process again: a
+    #: sandbox restarted without it would inherit its launcher's database.
+    #: None on a record written before restart existed, which restart refuses.
+    launch_env: dict[str, str] | None = None
     log_path: str | None = None
     #: The instance's private directory — a database snapshot, caches.
     data_dir: str | None = None
@@ -101,6 +106,9 @@ class InstanceView(InstanceRecord):
     """A record with the state derived from the live process table."""
 
     state: InstanceState
+    #: Kept off every response: a host's template may put a credential in its
+    #: environment, and a listing is for finding instances, not reading them.
+    launch_env: dict[str, str] | None = Field(default=None, exclude=True)
 
 
 class UnreadableRecord(BaseModel):
