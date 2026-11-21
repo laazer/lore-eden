@@ -74,6 +74,11 @@ def make_instances_router(provider: Callable[[], InstanceManager]) -> APIRouter:
         with _as_http():
             return manager.logs(instance_id, tail=tail)
 
+    @router.post("/{instance_id}/restart", response_model=InstanceView)
+    def restart_instance(manager: Manager, instance_id: str) -> InstanceView:
+        with _as_http():
+            return manager.restart(instance_id)
+
     @router.delete("/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
     def stop_instance(manager: Manager, instance_id: str, keep_data: bool = False) -> None:
         with _as_http():

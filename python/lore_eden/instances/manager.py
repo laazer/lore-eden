@@ -166,27 +166,8 @@ class InstanceManager:
             }
             command = [_fill(part, values) for part in spec.command]
             cwd = Path(_fill(str(spec.cwd), values))
-            env = {
-                **os.environ,
-                **{key: _fill(value, values) for key, value in spec.env.items()},
-                "PORT": str(port),
-                ENV_INSTANCE_ID: instance_id,
-                ENV_REGISTRY_DIR: str(self.registry.root),
-            }
-            with open(log_path, "ab") as log:
-                try:
-                    child = subprocess.Popen(  # noqa: S603 - argv from a host-registered template
-                        command,
-                        cwd=cwd,
-                        env=env,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        stdin=subprocess.DEVNULL,
-                        # Its own group, so stop reaches the workers it forks.
-                        start_new_session=True,
-                    )
-                except OSError as exc:
-                    raise InstanceLaunchError(f"could not start {command[0]!r} in {cwd}: {exc}") from exc
+            launch_env = {key: _fill(value, values) for key, value in spec.env.items()}
+            child = self._spawn(instance_id, command, cwd, launch_env, port, log_path)
             record = InstanceRecord(
                 id=instance_id,
                 project=spec.project,
@@ -203,6 +184,7 @@ class InstanceManager:
                 ready_timeout_seconds=spec.ready_timeout_seconds,
                 cwd=str(cwd),
                 command=command,
+                launch_env=launch_env,
                 log_path=str(log_path),
                 data_dir=str(instance_dir),
                 target_instance_id=spec.target_instance_id,
@@ -213,6 +195,103 @@ class InstanceManager:
         self._children[instance_id] = child
         logger.info("launched %s (%s) pid=%s on %s", instance_id, template, child.pid, url)
         return self.registry.view(record)
+
+    def _spawn(
+        self,
+        instance_id: str,
+        command: list[str],
+        cwd: Path,
+        launch_env: dict[str, str],
+        port: int,
+        log_path: Path,
+    ) -> subprocess.Popen[bytes]:
+        env = {
+            **os.environ,
+            **launch_env,
+            "PORT": str(port),
+            ENV_INSTANCE_ID: instance_id,
+            ENV_REGISTRY_DIR: str(self.registry.root),
+        }
+        with open(log_path, "ab") as log:
+            try:
+                return subprocess.Popen(  # noqa: S603 - argv from a host-registered template
+                    command,
+                    cwd=cwd,
+                    env=env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    # Its own group, so stop reaches the workers it forks.
+                    start_new_session=True,
+                )
+            except OSError as exc:
+                raise InstanceLaunchError(f"could not start {command[0]!r} in {cwd}: {exc}") from exc
+
+    # -- restart ---------------------------------------------------------
+
+    def restart(self, instance_id: str) -> InstanceView:
+        """Stop the process group and run the same command again, as the same instance.
+
+        Same id, port, URL, data directory and log, so a client pointed at a
+        restarted server keeps working without being told. It is how a
+        server picks up a code change — a launched server runs no reloader —
+        and how an exited instance is retried with its history intact.
+
+        It runs what was launched, not what the template would build now: a
+        rebuild would take a fresh database snapshot and re-resolve a client's
+        target, and the point of a restart is that nothing else changes.
+        """
+        record = self.registry.get(instance_id)
+        if record is None:
+            raise InstanceNotFoundError(instance_id)
+        if not record.managed:
+            raise NotManagedError(
+                f"{record.name} registered itself (pid {record.pid}); restart it where it was started"
+            )
+        if record.launch_env is None:
+            # Restarting with no template environment would start the process
+            # on whatever the launcher inherited — for a sandboxed server, the
+            # main database. Refused rather than guessed.
+            raise InstanceLaunchError(
+                f"{record.name} was launched before restart recorded its environment; "
+                "stop it and launch it again"
+            )
+        if self.registry.is_alive(record) and record.pgid is not None:
+            self._terminate(record.pgid, instance_id)
+        self._children.pop(instance_id, None)
+        log_path = Path(record.log_path) if record.log_path else self.registry.logs_dir / f"{instance_id}.log"
+        stamp = datetime.now(timezone.utc)
+        try:
+            with self.registry.lock():
+                current = self.registry.get(instance_id)
+                if current is None:
+                    # Stopped by someone else while this one was terminating it.
+                    raise InstanceNotFoundError(instance_id)
+                with open(log_path, "a", encoding="utf-8") as log:
+                    log.write(f"--- restarted {stamp.isoformat()} ---\n")
+                child = self._spawn(
+                    instance_id, current.command, Path(current.cwd or "."), record.launch_env,
+                    current.port, log_path,
+                )
+                restarted = current.model_copy(
+                    update={
+                        "pid": child.pid,
+                        "pgid": child.pid,
+                        "started_at": stamp,
+                        "ready_at": None,
+                        "exit_code": None,
+                        "last_error": None,
+                        "log_path": str(log_path),
+                    }
+                )
+                self.registry.put(restarted)
+        except OSError as exc:
+            # Same reasoning as launch: an unwrapped OSError reaches an MCP
+            # client as bare errno text with no error_kind.
+            raise InstanceLaunchError(f"could not restart {record.name}: {exc}") from exc
+        self._children[instance_id] = child
+        logger.info("restarted %s pid=%s on %s", instance_id, child.pid, restarted.url)
+        return self.registry.view(restarted)
 
     # -- observe ---------------------------------------------------------
 

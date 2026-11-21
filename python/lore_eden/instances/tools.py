@@ -6,8 +6,8 @@
 
     register_instance_tools(registry, lambda: manager, prefix="shop_")
 
-Four tools — ``list_instances``, ``launch_instance``, ``instance_status`` and
-``stop_instance`` — over the same manager the HTTP router uses, so an agent and
+Five tools — ``list_instances``, ``launch_instance``, ``instance_status``,
+``restart_instance`` and ``stop_instance`` — over the same manager the HTTP router uses, so an agent and
 a person at the UI see and act on the same instances.
 
 Handlers take the ``(context, arguments) -> str`` shape of
@@ -24,6 +24,15 @@ returns as soon as the process starts; ``wait_seconds`` covers the common
 case of a server that is up in a few seconds, and is clamped because a branch
 server syncing its dependencies can take minutes. After that the agent polls
 ``instance_status``, which is also what moves an instance to ``ready``.
+
+**A listing is sized for a turn.** A template's choices are computed per call
+from the machine — a worktree picker offers every worktree — and a hundred
+absolute paths, repeated for each template that offers them, cost an agent
+thousands of tokens to learn which templates exist. The listing gives a long
+choice list as a count and a few examples; ``list_instances`` with
+``template`` returns that template's full lists. The trim is here, not in the
+template, because the template also feeds the HTTP router, where a person's
+picker needs every choice.
 """
 
 from __future__ import annotations
@@ -35,7 +44,12 @@ from typing import Any
 from lore_eden.instances.failures import EXPECTED_FAILURES, classify
 from lore_eden.instances.manager import InstanceManager
 from lore_eden.instances.models import InstanceState, InstanceView
-from lore_eden.instances.templates import LaunchRequest
+from lore_eden.instances.templates import (
+    LaunchRequest,
+    TemplateInfo,
+    TemplateParam,
+    UnknownTemplateError,
+)
 from lore_eden.mcp.tools import ToolDefinition, ToolHandler, ToolRegistry
 
 #: Longest a launch may wait for readiness inside one tool call.
@@ -43,6 +57,10 @@ MAX_WAIT_SECONDS = 30
 #: Log lines a status call returns by default, and at most.
 DEFAULT_LOG_LINES = 40
 MAX_LOG_LINES = 500
+#: Choice lists longer than this are summarised in an unfiltered listing.
+MAX_INLINE_CHOICES = 12
+#: Examples kept from a summarised choice list, the default first.
+CHOICE_EXAMPLES = 3
 
 ManagerProvider = Callable[[], InstanceManager]
 
@@ -91,18 +109,44 @@ def _next_step(view: InstanceView) -> str:
     if view.state == InstanceState.READY:
         return f"Ready at {view.url}. Stop it with stop_instance when you are done."
     if view.state == InstanceState.EXITED:
-        return "It exited. Read its log with instance_status, then stop_instance to dismiss it."
+        return "It exited. Read its log with instance_status, then restart_instance to retry it or stop_instance to dismiss it."
     if view.state == InstanceState.STALLED:
         return "It is running but never answered its readiness check. Read its log with instance_status."
     return "Still starting. Poll instance_status until state is ready — each poll re-checks it."
 
 
+def _param(param: TemplateParam, template: str) -> dict[str, Any]:
+    payload = param.model_dump(mode="json")
+    choices = param.choices
+    if choices is None or len(choices) <= MAX_INLINE_CHOICES:
+        return payload
+    first = [param.default] if param.default in choices else []
+    del payload["choices"]
+    payload["choice_count"] = len(choices)
+    payload["choice_examples"] = (first + [c for c in choices if c != param.default])[:CHOICE_EXAMPLES]
+    payload["all_choices"] = f'list_instances with template="{template}" lists all {len(choices)}'
+    return payload
+
+
+def _template(info: TemplateInfo, *, full: bool) -> dict[str, Any]:
+    payload = info.model_dump(mode="json")
+    if not full:
+        payload["params"] = [_param(param, info.name) for param in info.params]
+    return payload
+
+
 def _list(manager: InstanceManager, arguments: dict[str, Any]) -> str:
+    wanted = arguments.get("template") or None
+    templates = manager.templates.describe_all()
+    if wanted is not None:
+        templates = [info for info in templates if info.name == wanted]
+        if not templates:
+            return _failed(UnknownTemplateError(wanted))
     listing = manager.list(arguments.get("project") or None)
     return _ok(
         instances=[_summary(view) for view in listing.instances],
         unreadable=[bad.model_dump() for bad in listing.unreadable],
-        templates=[info.model_dump(mode="json") for info in manager.templates.describe_all()],
+        templates=[_template(info, full=wanted is not None) for info in templates],
     )
 
 
@@ -140,6 +184,17 @@ def _inspect(manager: InstanceManager, arguments: dict[str, Any]) -> str:
     )
 
 
+def _restart(manager: InstanceManager, arguments: dict[str, Any]) -> str:
+    wait = _clamp(arguments.get("wait_seconds"), 0, MAX_WAIT_SECONDS)
+    try:
+        view = manager.restart(arguments["instance_id"])
+        if wait:
+            view = manager.wait_ready(view.id, timeout=wait)
+    except EXPECTED_FAILURES as exc:
+        return _failed(exc)
+    return _ok(instance=_summary(view), next_step=_next_step(view))
+
+
 def _stop(manager: InstanceManager, arguments: dict[str, Any]) -> str:
     instance_id = arguments["instance_id"]
     try:
@@ -154,11 +209,17 @@ _SPECS: list[tuple[str, str, dict[str, Any], Callable[[InstanceManager, dict[str
         "list_instances",
         "List local server and client instances — including the main server, which "
         "registers itself — with their state and URL, and the templates you can "
-        "launch, with each template's parameters and allowed values.",
+        "launch, with each template's parameters and allowed values. A long list "
+        "of allowed values comes back as a count and examples; pass `template` "
+        "for that template's full lists.",
         {
             "type": "object",
             "properties": {
                 "project": {"type": "string", "description": "Only this project's instances."},
+                "template": {
+                    "type": "string",
+                    "description": "Only this template, with every allowed value of every parameter.",
+                },
             },
             "additionalProperties": False,
         },
@@ -208,6 +269,27 @@ _SPECS: list[tuple[str, str, dict[str, Any], Callable[[InstanceManager, dict[str
             "additionalProperties": False,
         },
         _inspect,
+    ),
+    (
+        "restart_instance",
+        "Stop an instance you launched and run the same command again, keeping its "
+        "id, port, URL, data and log — a client pointed at a restarted server keeps "
+        "working. Use it after editing a launched server's code: it runs no reloader. "
+        "Also retries an instance that exited. Returns in state `starting` unless "
+        "`wait_seconds` saw it become ready.",
+        {
+            "type": "object",
+            "properties": {
+                "instance_id": {"type": "string", "description": "Instance id."},
+                "wait_seconds": {
+                    "type": "integer",
+                    "description": f"Wait up to this long for it to be ready (0-{MAX_WAIT_SECONDS}, default 0).",
+                },
+            },
+            "required": ["instance_id"],
+            "additionalProperties": False,
+        },
+        _restart,
     ),
     (
         "stop_instance",
