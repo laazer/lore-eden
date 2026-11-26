@@ -123,6 +123,18 @@ LORE_EDEN_PROFILE=.profile/python.json python -m pytest -q
 It works under pytest-xdist: only the controller writes, so `-n auto` still
 yields one file covering every test.
 
+`lore_eden.testing.profile_delta` is the gate on top of it: a run's per-file
+seconds against the median of the newest ten complete runs, failing when a suite
+grew more than 20% and naming the ten files that grew most. `from-jest` turns
+`jest --json` output into the same schema, so a frontend suite is compared by the
+same code. Which runs may form a baseline (a trunk's, never a pull request's) is
+the caller's choice:
+
+```bash
+python -m lore_eden.testing.profile_delta baseline --run main-3/ --run main-2/ --out base.json
+python -m lore_eden.testing.profile_delta compare --baseline base.json --current this-run/
+```
+
 
 ## Driving a workflow
 
