@@ -100,6 +100,19 @@ class InstanceRecord(BaseModel):
     exit_code: int | None = None
     #: Why the instance failed, in words an operator can act on.
     last_error: str | None = None
+    #: Who launched it, in the host's own terms (loregarden writes the run id).
+    #: The library never interprets it: a host's keep-alive predicate for
+    #: :meth:`InstanceManager.stop_idle` reads it to spare an instance whose
+    #: owner is still working.
+    owner: str | None = None
+    #: When the instance was last used through the manager (read, probed, its
+    #: log tailed, restarted). None on a record written before this existed,
+    #: and idleness then counts from ``started_at``.
+    last_active_at: datetime | None = None
+    #: Set when :meth:`InstanceManager.stop_idle` stopped it. The record is kept,
+    #: ``exited`` with the reason in ``last_error``, until someone dismisses it,
+    #: so an idle stop is visible rather than an instance silently vanishing.
+    idle_stopped_at: datetime | None = None
 
 
 class InstanceView(InstanceRecord):
@@ -133,6 +146,33 @@ class InstanceHealth(BaseModel):
     #: Empty when ok; otherwise what failed.
     error: str = ""
     status_code: int | None = None
+
+
+class IdleStop(BaseModel):
+    """One instance an idle sweep stopped."""
+
+    id: str
+    name: str
+    last_active_at: datetime
+    idle_seconds: int
+
+
+class IdleFailure(BaseModel):
+    """One idle instance the sweep could not stop; it is left running and untouched."""
+
+    id: str
+    name: str
+    error: str
+
+
+class IdleSweep(BaseModel):
+    """What one :meth:`InstanceManager.stop_idle` pass did."""
+
+    stopped: list[IdleStop] = Field(default_factory=list)
+    failed: list[IdleFailure] = Field(default_factory=list)
+    #: Non-empty when the sweep cannot run on this host at all, and why. A host
+    #: should stop sweeping and say so rather than retry it every pass.
+    disabled_reason: str = ""
 
 
 class InstanceLogs(BaseModel):
