@@ -24,12 +24,16 @@ import socket
 import subprocess
 import time
 from collections import deque
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 
 from lore_eden.instances.models import (
+    IdleFailure,
+    IdleStop,
+    IdleSweep,
     InstanceHealth,
     InstanceListing,
     InstanceLogs,
@@ -61,6 +65,10 @@ _POLL_SECONDS = 0.25
 #: How long a signal answered with EPERM waits for our own child to finish
 #: exiting. Milliseconds normally; seconds only on a badly overloaded host.
 _EXIT_SETTLE_SECONDS = 2.0
+#: A use within this long of the recorded one is not written again. `wait_ready`
+#: reads every 0.25s, and each read rewriting the record buys nothing an idle
+#: window measured in minutes can see.
+TOUCH_RESOLUTION_SECONDS = 30.0
 
 
 class InstanceNotFoundError(KeyError):
@@ -133,7 +141,7 @@ class InstanceManager:
             raise InstanceLaunchError(f"could not create {instance_dir} for {label}: {exc}") from exc
         try:
             spec = template.build(request, LaunchContext(instance_id, instance_dir, self.registry))
-            return self._start(instance_id, instance_dir, request.template, spec)
+            return self._start(instance_id, instance_dir, request.template, spec, request.owner)
         except OSError as exc:
             shutil.rmtree(instance_dir, ignore_errors=True)
             # Taking the registry lock, opening the log, building the spec: any
@@ -149,7 +157,12 @@ class InstanceManager:
             raise
 
     def _start(
-        self, instance_id: str, instance_dir: Path, template: str, spec: LaunchSpec
+        self,
+        instance_id: str,
+        instance_dir: Path,
+        template: str,
+        spec: LaunchSpec,
+        owner: str | None,
     ) -> InstanceView:
         log_path = self.registry.logs_dir / f"{instance_id}.log"
         with self.registry.lock():
@@ -168,6 +181,7 @@ class InstanceManager:
             cwd = Path(_fill(str(spec.cwd), values))
             launch_env = {key: _fill(value, values) for key, value in spec.env.items()}
             child = self._spawn(instance_id, command, cwd, launch_env, port, log_path)
+            started_at = datetime.now(timezone.utc)
             record = InstanceRecord(
                 id=instance_id,
                 project=spec.project,
@@ -189,7 +203,9 @@ class InstanceManager:
                 data_dir=str(instance_dir),
                 target_instance_id=spec.target_instance_id,
                 labels=spec.labels,
-                started_at=datetime.now(timezone.utc),
+                started_at=started_at,
+                owner=owner,
+                last_active_at=started_at,
             )
             self.registry.put(record)
         self._children[instance_id] = child
@@ -282,6 +298,8 @@ class InstanceManager:
                         "exit_code": None,
                         "last_error": None,
                         "log_path": str(log_path),
+                        "last_active_at": stamp,
+                        "idle_stopped_at": None,
                     }
                 )
                 self.registry.put(restarted)
@@ -338,10 +356,31 @@ class InstanceManager:
         return InstanceListing(instances=views, unreadable=scan.unreadable)
 
     def get(self, instance_id: str) -> InstanceView:
+        """One instance's current view. Reading it counts as using it (see :meth:`touch`)."""
+        return self.refresh(self.touch(instance_id))
+
+    def touch(self, instance_id: str, *, now: datetime | None = None) -> InstanceRecord:
+        """Record that the instance was just used, and return its record.
+
+        Every read of one instance through the manager calls this — ``get``,
+        and so ``health`` and ``wait_ready``, and ``logs`` — because someone
+        reading an instance is using it. ``list`` does not: a UI polling the
+        list would otherwise keep every instance alive forever.
+        """
+        stamp = now or datetime.now(timezone.utc)
         record = self.registry.get(instance_id)
         if record is None:
             raise InstanceNotFoundError(instance_id)
-        return self.refresh(record)
+        last = record.last_active_at
+        if last is not None and (stamp - last).total_seconds() < TOUCH_RESOLUTION_SECONDS:
+            return record
+        with self.registry.lock():
+            current = self.registry.get(instance_id)
+            if current is None:
+                raise InstanceNotFoundError(instance_id)
+            touched = current.model_copy(update={"last_active_at": stamp})
+            self.registry.put(touched)
+        return touched
 
     def health(self, instance_id: str) -> InstanceHealth:
         view = self.get(instance_id)
@@ -359,9 +398,7 @@ class InstanceManager:
         return view
 
     def logs(self, instance_id: str, *, tail: int = 200) -> InstanceLogs:
-        record = self.registry.get(instance_id)
-        if record is None:
-            raise InstanceNotFoundError(instance_id)
+        record = self.touch(instance_id)
         if record.log_path is None:
             return InstanceLogs(path=None, lines=[])
         path = Path(record.log_path)
@@ -410,6 +447,93 @@ class InstanceManager:
         if record.log_path:
             Path(record.log_path).unlink(missing_ok=True)
 
+    # -- idle ------------------------------------------------------------
+
+    def stop_idle(
+        self,
+        *,
+        idle: timedelta,
+        keep: Callable[[InstanceRecord], bool],
+        now: datetime | None = None,
+        project: str | None = None,
+    ) -> IdleSweep:
+        """Stop every launched branch instance unused for at least ``idle``.
+
+        Only what this library launched and may stop is considered: ``managed``
+        branch instances. A main instance, and anything that registered itself,
+        is someone else's to stop. Idleness runs from ``last_active_at`` (or
+        ``started_at`` on an older record). ``keep`` is the host's veto, asked
+        only of an instance already past the window — loregarden spares one
+        whose launching run is still in flight. An exception from it
+        propagates: an instance nobody could judge is not stopped on a guess.
+
+        A stopped instance is not forgotten the way :meth:`stop` forgets one.
+        Its record stays, ``exited``, with ``idle_stopped_at`` and the reason in
+        ``last_error``, and its log and data stay with it, until someone
+        dismisses it with :meth:`stop`. An instance that cannot be stopped is
+        left running, untouched, and reported in ``failed``.
+        """
+        if idle <= timedelta(0):
+            raise ValueError(f"idle window must be positive, got {idle}")
+        if not hasattr(os, "killpg"):
+            return IdleSweep(
+                disabled_reason=(
+                    "this platform cannot signal a process group, so an idle "
+                    "instance cannot be stopped cleanly"
+                )
+            )
+        stamp = now or datetime.now(timezone.utc)
+        sweep = IdleSweep()
+        for record in self.registry.scan(project).records:
+            last = _idle_since(record, idle=idle, now=stamp, alive=self.registry.is_alive(record))
+            if last is not None and not keep(record):
+                self._stop_idle_one(record, last=last, now=stamp, sweep=sweep)
+        return sweep
+
+    def _stop_idle_one(
+        self, record: InstanceRecord, *, last: datetime, now: datetime, sweep: IdleSweep
+    ) -> None:
+        # Read again: it may have been used, restarted or dismissed since the
+        # scan, and stopping an instance someone just touched is the one
+        # mistake this sweep must not make.
+        current = self.registry.get(record.id)
+        if current is None or current.pid != record.pid or current.pgid is None:
+            return
+        if (current.last_active_at or current.started_at) > last:
+            return
+        try:
+            self._terminate(current.pgid, current.id)
+        except OSError as exc:
+            logger.warning("idle sweep could not stop %s: %s", current.id, exc)
+            sweep.failed.append(IdleFailure(id=current.id, name=current.name, error=str(exc)))
+            return
+        if self.registry.is_alive(current):
+            error = f"process group {current.pgid} is still running after SIGKILL"
+            logger.warning("idle sweep could not stop %s: %s", current.id, error)
+            sweep.failed.append(IdleFailure(id=current.id, name=current.name, error=error))
+            return
+        self._children.pop(current.id, None)
+        idle_seconds = int((now - last).total_seconds())
+        with self.registry.lock():
+            latest = self.registry.get(current.id)
+            if latest is None:
+                return
+            self.registry.put(
+                latest.model_copy(
+                    update={
+                        "idle_stopped_at": now,
+                        "last_error": (
+                            f"stopped after {_minutes(idle_seconds)} with no activity "
+                            f"(last used {last.isoformat(timespec='seconds')})"
+                        ),
+                    }
+                )
+            )
+        logger.info("idle sweep stopped %s after %ss unused", current.id, idle_seconds)
+        sweep.stopped.append(
+            IdleStop(id=current.id, name=current.name, last_active_at=last, idle_seconds=idle_seconds)
+        )
+
     def _terminate(self, pgid: int, instance_id: str) -> None:
         child = self._children.get(instance_id)
         if not _signal_group(pgid, signal.SIGTERM, child):
@@ -426,6 +550,23 @@ class InstanceManager:
             return
         if child is not None:
             child.wait(timeout=STOP_GRACE_SECONDS)
+
+
+def _idle_since(
+    record: InstanceRecord, *, idle: timedelta, now: datetime, alive: bool
+) -> datetime | None:
+    """When ``record`` was last used, if it is a stoppable instance idle past ``idle``."""
+    if not record.managed or record.role != InstanceRole.BRANCH or record.pgid is None:
+        return None
+    if not alive:
+        return None
+    last = record.last_active_at or record.started_at
+    return last if now - last >= idle else None
+
+
+def _minutes(seconds: int) -> str:
+    minutes = seconds // 60
+    return f"{minutes} min" if minutes else f"{seconds}s"
 
 
 def _signal_group(pgid: int, sig: int, child: subprocess.Popen[bytes] | None) -> bool:

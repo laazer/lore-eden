@@ -79,6 +79,7 @@ def _summary(view: InstanceView) -> dict[str, Any]:
         "target_instance_id": view.target_instance_id,
         "labels": view.labels,
         "last_error": view.last_error,
+        "idle_stopped_at": view.idle_stopped_at.isoformat() if view.idle_stopped_at else None,
     }
 
 
@@ -151,10 +152,22 @@ def _list(manager: InstanceManager, arguments: dict[str, Any]) -> str:
 
 
 def _launch(manager: InstanceManager, arguments: dict[str, Any]) -> str:
+    return launch_instance(manager, arguments, owner=None)
+
+
+def launch_instance(manager: InstanceManager, arguments: dict[str, Any], *, owner: str | None) -> str:
+    """The launch tool's body, for a host that knows who is calling.
+
+    The bound tool cannot see its caller, so it launches with no owner. A host
+    whose dispatch does know (loregarden passes the calling run's id) calls
+    this instead, and the owner lands on the record for its idle sweep's
+    keep-alive predicate.
+    """
     request = LaunchRequest(
         template=arguments["template"],
         name=arguments.get("name") or None,
         params={key: str(value) for key, value in (arguments.get("params") or {}).items()},
+        owner=owner,
     )
     wait = _clamp(arguments.get("wait_seconds"), 0, MAX_WAIT_SECONDS)
     try:

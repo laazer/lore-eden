@@ -56,6 +56,8 @@ class LaunchRequest(BaseModel):
     #: Label for the instance; the template picks one when omitted.
     name: str | None = None
     params: dict[str, str] = Field(default_factory=dict)
+    #: Recorded on the instance as ``owner``; see :class:`InstanceRecord`.
+    owner: str | None = None
 
 
 @dataclass(frozen=True)
